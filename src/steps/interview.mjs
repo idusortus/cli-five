@@ -78,8 +78,8 @@ const COST_MODES = [
   { title: 'Mixed', value: 'mixed', description: 'Premium Coder + Reviewer, cheap everything else.' },
 ];
 
-export async function interview(detected, args) {
-  if (args.yes) return defaults(detected);
+export async function interview(detected, args, docHints = {}) {
+  if (args.yes) return defaults(detected, docHints);
 
   const onCancel = () => {
     throw new Error('Interview cancelled. Nothing was written.');
@@ -92,13 +92,13 @@ export async function interview(detected, args) {
         type: 'text',
         name: 'projectName',
         message: 'Project name',
-        initial: detected.projectName,
+        initial: docHints.projectName || detected.projectName,
       },
       {
         type: 'text',
         name: 'oneLiner',
         message: 'One-line description (becomes PROJECT.md vision)',
-        initial: '',
+        initial: docHints.oneLiner || '',
       },
     ],
     { onCancel },
@@ -159,11 +159,13 @@ export async function interview(detected, args) {
         type: 'text',
         name: 'goals',
         message: 'Primary goal of this project (one sentence)',
+        initial: docHints.goals || '',
       },
       {
         type: 'text',
         name: 'constraints',
         message: 'Hard constraints (perf, deps, deploy, compliance — one sentence, optional)',
+        initial: docHints.constraints || '',
       },
       {
         type: 'select',
@@ -183,30 +185,32 @@ export async function interview(detected, args) {
   );
 
   return normalize({
-    ...defaults(detected),
+    ...defaults(detected, docHints),
     ...basic,
     ...stackAnswers,
     ...rest,
     presetId: preset,
     quickstart: chosenPreset?.quickstart || '',
+    docs: docHints.raw || '',
   });
 }
 
 /** Default stack is Next.js + TypeScript when nothing detected and --yes. */
-function defaults(detected) {
+function defaults(detected, docHints = {}) {
   const hasDetected = detected.stacks.length > 0;
   const fallback = STACK_PRESETS[0]; // Next.js (TypeScript)
   return {
-    projectName: detected.projectName,
-    oneLiner: '',
+    projectName: docHints.projectName || detected.projectName,
+    oneLiner: docHints.oneLiner || '',
     stack: hasDetected ? detected.stacks.map((s) => s.label) : fallback.stack,
     frameworks: hasDetected ? [] : fallback.frameworks,
-    goals: '',
-    constraints: '',
+    goals: docHints.goals || '',
+    constraints: docHints.constraints || '',
     costMode: 'premium',
     snark: true,
     presetId: hasDetected ? 'custom' : fallback.value,
     quickstart: hasDetected ? '' : fallback.quickstart,
+    docs: docHints.raw || '',
   };
 }
 

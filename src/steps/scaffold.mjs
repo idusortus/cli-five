@@ -96,6 +96,13 @@ function buildVars(a) {
     CONSTRAINTS: a.constraints || 'None declared.',
     QUICKSTART: a.quickstart || 'TODO — add install + run commands here.',
     COST_MODE: a.costMode,
+    DOCS_SECTION: a.docs ? `
+## Source Documents
+
+The following documents were provided via \`--doc\` at project init time.
+
+${a.docs}
+` : '',
     DATE: new Date().toISOString().slice(0, 10),
     PERSONA_BLOCK: a.snark ? PERSONA_BLOCK : '',
   };
