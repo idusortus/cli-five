@@ -1,5 +1,7 @@
 import kleur from 'kleur';
 import prompts from 'prompts';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve, basename } from 'node:path';
 import { log } from '../util/log.mjs';
 import { detect } from '../steps/detect.mjs';
 import { confirmOverwriteIfNeeded } from '../steps/confirm.mjs';
@@ -40,9 +42,51 @@ export async function init(args) {
   }
   if (!detected.hasAgents && !detected.hasCopilotInstructions) log.dim('No collisions.');
 
-  // 4. Interview
-  log.step('3/6 Interview');
-  const answers = await interview(detected, args);
+  // 4. Input mode — docs or manual interview
+  log.step('3/6 Project info');
+  let docHints;
+
+  if (args.docs.length > 0) {
+    // --doc was passed on the CLI — use those files directly
+    docHints = loadDocs(args.docs, cwd);
+  } else if (args.yes) {
+    // --yes skips the choice — go straight to defaults
+    docHints = loadDocs([], cwd);
+  } else {
+    const { mode } = await prompts({
+      type: 'select',
+      name: 'mode',
+      message: 'How would you like to describe your project?',
+      choices: [
+        { title: 'Provide document(s)', value: 'docs', description: 'Feed existing files (README, PRD, etc.) — we extract what we can' },
+        { title: 'Answer questions', value: 'manual', description: 'Short interactive interview' },
+      ],
+      initial: 0,
+    });
+    if (mode === undefined) { log.warn('Cancelled.'); return; }
+
+    if (mode === 'docs') {
+      const { paths } = await prompts({
+        type: 'list',
+        name: 'paths',
+        message: 'File paths (comma-separated, relative to project root)',
+        separator: ',',
+      });
+      if (!paths || paths.length === 0) { log.warn('No files provided. Falling back to interview.'); }
+      docHints = loadDocs((paths || []).map(p => p.trim()).filter(Boolean), cwd);
+    } else {
+      docHints = loadDocs([], cwd);
+    }
+  }
+
+  if (docHints.files.length > 0) {
+    log.info(`Loaded ${docHints.files.length} doc${docHints.files.length > 1 ? 's' : ''}: ${docHints.files.join(', ')}`);
+    if (docHints.projectName) log.dim(`  → project name: ${docHints.projectName}`);
+    if (docHints.oneLiner) log.dim(`  → description: ${docHints.oneLiner}`);
+  }
+
+  // 5. Interview (pre-filled from docs if available, otherwise manual)
+  const answers = await interview(detected, args, docHints);
 
   // CLI --cost-mode override
   if (args.costMode && ['premium', 'cheap', 'mixed'].includes(args.costMode)) {
@@ -105,4 +149,102 @@ function printNextSteps(answers) {
   log.raw('');
   log.raw(kleur.dim('Edit cost mode anytime by changing `model:` in .github/agents/*.agent.md.'));
   log.raw('');
+}
+
+// ── --doc file loading + extraction ───────────────────────────────────
+
+function loadDocs(docPaths, cwd) {
+  const empty = { files: [], projectName: '', oneLiner: '', goals: '', constraints: '', raw: '' };
+  if (!docPaths || docPaths.length === 0) return empty;
+
+  const sections = [];
+  const files = [];
+  let projectName = '';
+  let oneLiner = '';
+  let goals = '';
+  let constraints = '';
+
+  for (const rawPath of docPaths) {
+    const abs = resolve(cwd, rawPath);
+    if (!existsSync(abs)) {
+      log.warn(`--doc: file not found: ${rawPath}`);
+      continue;
+    }
+
+    let content;
+    try {
+      content = readFileSync(abs, 'utf8');
+    } catch (err) {
+      log.warn(`--doc: cannot read ${rawPath}: ${err.message}`);
+      continue;
+    }
+
+    const name = basename(abs);
+    files.push(name);
+    sections.push(`### ${name}\n\n${content.trim()}`);
+
+    // ── Heuristic extraction ──────────────────────────────────────
+    // Try package.json first (structured data)
+    if (name === 'package.json') {
+      try {
+        const pkg = JSON.parse(content);
+        if (pkg.name && !projectName) projectName = pkg.name;
+        if (pkg.description && !oneLiner) oneLiner = pkg.description;
+      } catch { /* ignore malformed JSON */ }
+      continue;
+    }
+
+    // For markdown/text files — extract from headings and first paragraph
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+
+      // First H1 → project name hint
+      if (!projectName && /^#\s+/.test(line)) {
+        projectName = line.replace(/^#+\s*/, '').trim();
+        continue;
+      }
+
+      // First non-empty paragraph after H1 → one-liner hint
+      if (projectName && !oneLiner && line && !line.startsWith('#') && !line.startsWith('```') && !line.startsWith('- ') && !line.startsWith('|')) {
+        oneLiner = line.length > 120 ? line.slice(0, 117) + '...' : line;
+        continue;
+      }
+
+      // ## Goal / ## Purpose / ## Overview → goals hint
+      if (!goals && /^##\s+(goal|purpose|overview|objective|vision)/i.test(line)) {
+        const body = collectSection(lines, i + 1);
+        if (body) goals = body;
+        continue;
+      }
+
+      // ## Constraints → constraints hint
+      if (!constraints && /^##\s+(constraint|requirement|limit|scope)/i.test(line)) {
+        const body = collectSection(lines, i + 1);
+        if (body) constraints = body;
+        continue;
+      }
+    }
+  }
+
+  return {
+    files,
+    projectName,
+    oneLiner,
+    goals,
+    constraints,
+    raw: sections.join('\n\n---\n\n'),
+  };
+}
+
+/** Collect text from startIdx until the next heading or EOF. */
+function collectSection(lines, startIdx) {
+  const out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    if (/^##?\s+/.test(lines[i]) && out.length > 0) break;
+    const trimmed = lines[i].trim();
+    if (trimmed) out.push(trimmed);
+    if (out.length >= 3) break; // Keep it short — just the first few lines
+  }
+  return out.join(' ');
 }

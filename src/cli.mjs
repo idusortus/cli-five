@@ -24,6 +24,7 @@ ${kleur.bold('Flags')}
   --force         Overwrite without confirmation. Dangerous. Use with --yes.
   --dry-run       Print actions without writing files
   --no-skills     Skip the skills.sh discovery step
+  --doc <file>    Read project docs to pre-fill interview (repeatable)
   --cost-mode <m> Override cost mode (premium, cheap, mixed) — skips interview question
   --cwd <path>    Run against a directory other than the current one
   --version, -v   Print version and exit
@@ -59,13 +60,14 @@ export async function run(argv) {
 }
 
 function parse(argv) {
-  const out = { _: [], yes: false, force: false, dryRun: false, skills: true, costMode: null, cwd: process.cwd() };
+  const out = { _: [], yes: false, force: false, dryRun: false, skills: true, docs: [], costMode: null, cwd: process.cwd() };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--yes' || a === '-y') out.yes = true;
     else if (a === '--force') out.force = true;
     else if (a === '--dry-run') out.dryRun = true;
     else if (a === '--no-skills') out.skills = false;
+    else if (a === '--doc') out.docs.push(argv[++i]);
     else if (a === '--cost-mode') out.costMode = argv[++i];
     else if (a === '--cwd') out.cwd = argv[++i];
     else if (a === '--help' || a === '-h') out._.push('help');
