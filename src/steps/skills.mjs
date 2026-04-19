@@ -155,6 +155,8 @@ export async function skillDiscovery({ cwd, answers, args }) {
     log.raw('');
   }
 
+  // 2b. Run searches and capture results
+  const allFound = [];
   for (const term of terms) {
     const { go } = await prompts({
       type: 'confirm',
@@ -163,34 +165,69 @@ export async function skillDiscovery({ cwd, answers, args }) {
       initial: true,
     });
     if (go) {
-      await runSkills(env, ['find', term], cwd);
+      const output = await runSkillsCapture(env, ['find', term], cwd);
+      allFound.push(...parseSkillRefs(output));
     }
   }
 
-  // 3. Offer to install from well-known repos
-  if (recs.length > 0) {
-    const { install } = await prompts({
+  // 3. Build combined skill picker — catalog recs + search results (deduped)
+  const seen = new Set();
+  const choices = [];
+
+  for (const r of recs) {
+    const ref = `${r.repo}@${r.skill}`;
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    choices.push({
+      title: `${r.skill} (${r.repo}) — recommended`,
+      value: { ref, repo: r.repo, skill: r.skill },
+      selected: true,
+    });
+  }
+
+  for (const r of allFound) {
+    if (seen.has(r.ref)) continue;
+    seen.add(r.ref);
+    choices.push({
+      title: `${r.ref} — ${r.installs}`,
+      value: { ref: r.ref },
+      selected: false,
+    });
+  }
+
+  if (choices.length > 0) {
+    log.raw('');
+    const { toInstall } = await prompts({
       type: 'multiselect',
-      name: 'install',
-      message: 'Install recommended skills?',
-      choices: recs.map((r) => ({
-        title: `${r.skill} (${r.repo})`,
-        value: r,
-        selected: false,
-      })),
-      hint: 'Space to select, Enter to confirm',
+      name: 'toInstall',
+      message: 'Select skills to install',
+      choices,
+      hint: 'Space to toggle, Enter to confirm',
     });
 
-    if (install && install.length > 0) {
+    if (toInstall && toInstall.length > 0) {
+      // Group catalog recs by repo for efficient batch install
       const byRepo = new Map();
-      for (const r of install) {
-        if (!byRepo.has(r.repo)) byRepo.set(r.repo, []);
-        byRepo.get(r.repo).push(r.skill);
+      const standalone = [];
+
+      for (const item of toInstall) {
+        if (item.repo) {
+          if (!byRepo.has(item.repo)) byRepo.set(item.repo, []);
+          byRepo.get(item.repo).push(item.skill);
+        } else {
+          standalone.push(item.ref);
+        }
       }
+
       for (const [repo, skills] of byRepo) {
         const skillArgs = skills.flatMap((s) => ['--skill', s]);
         log.info(`Installing from ${repo}: ${skills.join(', ')}`);
         await runSkills(env, ['add', repo, ...skillArgs, '-a', 'github-copilot'], cwd);
+      }
+
+      for (const ref of standalone) {
+        log.info(`Installing ${ref}...`);
+        await runSkills(env, ['add', ref, '-a', 'github-copilot'], cwd);
       }
 
       await relocateSkills(cwd);
@@ -329,4 +366,45 @@ function runInteractive(cmd, args, cwd) {
       resolve();
     });
   });
+}
+
+/** Run skills CLI, capture stdout/stderr while echoing to the terminal. */
+function runSkillsCapture(env, skillsArgs, cwd) {
+  const { cmd, args } = env.runner(skillsArgs);
+  return new Promise((resolve) => {
+    let output = '';
+    const proc = spawn(cmd, args, { cwd, stdio: ['inherit', 'pipe', 'pipe'] });
+    proc.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      process.stdout.write(text);
+      output += text;
+    });
+    proc.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      process.stderr.write(text);
+      output += text;
+    });
+    proc.on('exit', () => resolve(output));
+    proc.on('error', (err) => {
+      log.warn(`Could not launch \`${cmd} ${args.join(' ')}\`: ${err.message}`);
+      resolve('');
+    });
+  });
+}
+
+function stripAnsi(str) {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+}
+
+/** Extract owner/repo@skill refs from `skills find <term>` output. */
+function parseSkillRefs(output) {
+  const clean = stripAnsi(output);
+  const regex = /^(\S+\/\S+@\S+)\s+(.+?installs)/gm;
+  const results = [];
+  let match;
+  while ((match = regex.exec(clean))) {
+    results.push({ ref: match[1], installs: match[2].trim() });
+  }
+  return results;
 }
