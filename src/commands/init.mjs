@@ -85,11 +85,11 @@ function printNextSteps(answers) {
   log.raw(kleur.bold().green('Done. Next steps:'));
   log.raw('');
   log.raw(`  1. Open this folder in VS Code Insiders.`);
-  log.raw(`  2. Enable Copilot subagents (settings.json):`);
+  log.raw(`  2. Enable Copilot subagent invocations (settings.json):`);
   log.raw(kleur.gray(`        "chat.subagents.allowInvocationsFromSubagents": true`));
-  log.raw(`  3. Open Copilot Chat and verify the 5 agents appear (@ menu).`);
-  log.raw(`  4. Ask the Orchestrator to do something:`);
-  log.raw(kleur.gray(`        @Orchestrator read PROJECT.md and propose Phase 1.`));
+  log.raw(`  3. Open Copilot Chat — select an agent from the dropdown (${kleur.bold('not')} @mention).`);
+  log.raw(`  4. Select ${kleur.bold('Orchestrator')} from the dropdown, then ask:`);
+  log.raw(kleur.gray(`        read PROJECT.md and propose Phase 1.`));
   log.raw(`  5. Review generated instruction files in .github/instructions/.`);
   log.raw(kleur.gray(`        Edit applyTo globs and guidelines to fit your project.`));
   log.raw(kleur.gray(`        Installed skills are in .agents/skills/ (from skills.sh).`));
