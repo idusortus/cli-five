@@ -247,7 +247,7 @@ export async function skillDiscovery({ cwd, answers, args }) {
       for (const [repo, skills] of byRepo) {
         const skillArgs = skills.flatMap((s) => ['--skill', s]);
         log.info(`Installing from ${kleur.bold(repo)}: ${skills.join(', ')}`);
-        const result = await runSkillsTracked(env, ['add', repo, ...skillArgs, '-a', 'github-copilot'], cwd);
+        const result = await runSkillsTracked(env, ['add', repo, ...skillArgs, '-a', 'github-copilot', '--yes'], cwd);
         for (const s of skills) {
           installResults.push({ name: `${repo}@${s}`, ...result });
         }
@@ -256,7 +256,7 @@ export async function skillDiscovery({ cwd, answers, args }) {
       // Standalone refs
       for (const ref of standalone) {
         log.info(`Installing ${ref}...`);
-        const result = await runSkillsTracked(env, ['add', ref, '-a', 'github-copilot'], cwd);
+        const result = await runSkillsTracked(env, ['add', ref, '-a', 'github-copilot', '--yes'], cwd);
         installResults.push({ name: ref, ...result });
       }
 
@@ -375,20 +375,24 @@ function runSkills(env, skillsArgs, cwd) {
 function runSkillsTracked(env, skillsArgs, cwd) {
   const { cmd, args } = env.runner(skillsArgs);
   return new Promise((resolve) => {
-    // stdout/stderr inherit so the child writes directly to the TTY.
-    // This prevents line-buffering from swallowing unterminated prompt lines
-    // (e.g. the global vs local install question from the skills CLI).
-    // Failure is detected via exit code; stderr still captured for reason extraction.
-    let stderrOutput = '';
-    const proc = spawn(cmd, args, { cwd, stdio: ['inherit', 'inherit', 'pipe'] });
+    // stdout/stderr piped and re-echoed so we can capture output for failure detection.
+    // --yes is always passed so no interactive prompts will stall the pipe.
+    let output = '';
+    const proc = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      process.stdout.write(text);
+      output += text;
+    });
     proc.stderr.on('data', (chunk) => {
       const text = chunk.toString();
       process.stderr.write(text);
-      stderrOutput += text;
+      output += text;
     });
     proc.on('exit', (code) => {
-      if (code !== 0) {
-        const reason = extractFailureReason(stripAnsi(stderrOutput)) || `exited with code ${code}`;
+      const clean = stripAnsi(output);
+      if (code !== 0 || /failed to clone|installation failed|canceled/i.test(clean)) {
+        const reason = extractFailureReason(clean);
         resolve({ ok: false, reason });
       } else {
         resolve({ ok: true, reason: null });
