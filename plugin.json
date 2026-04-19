@@ -1,0 +1,10 @@
+{
+  "name": "cli-five",
+  "description": "5-agent orchestration squad for GitHub Copilot — Orchestrator, Planner, Coder, Designer, Reviewer.",
+  "version": "0.2.0",
+  "author": {
+    "name": "idusortus"
+  },
+  "agents": "plugin-agents/",
+  "repository": "https://github.com/idusortus/cli-five"
+}

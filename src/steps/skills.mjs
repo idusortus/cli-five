@@ -1,11 +1,43 @@
 import prompts from 'prompts';
+import kleur from 'kleur';
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { log } from '../util/log.mjs';
 
-// Well-known skill repos matched by stack term → repo + suggested skill names
+// ── Awesome-copilot catalog (github/awesome-copilot) ──────────────────
+// Curated subset mapped by stack term → { name, description, type }
+const AWESOME_CATALOG = [
+  // Universal
+  { terms: ['*'], name: 'frontend-design', desc: 'Production-grade UI design', type: 'skill', source: 'awesome-copilot' },
+  { terms: ['*'], name: 'conventional-commit', desc: 'Commit message standards', type: 'skill', source: 'awesome-copilot' },
+  { terms: ['*'], name: 'documentation-writer', desc: 'Generate project docs', type: 'skill', source: 'awesome-copilot' },
+  { terms: ['*'], name: 'mermaid-diagrams', desc: 'Create software diagrams', type: 'skill', source: 'awesome-copilot' },
+  // JavaScript / TypeScript / React / Next
+  { terms: ['node', 'typescript', 'javascript'], name: 'typescript', desc: 'TypeScript best practices', type: 'instruction', source: 'awesome-copilot' },
+  { terms: ['react', 'next'], name: 'reactjs', desc: 'React patterns & conventions', type: 'instruction', source: 'awesome-copilot' },
+  { terms: ['next'], name: 'nextjs', desc: 'Next.js patterns', type: 'instruction', source: 'awesome-copilot' },
+  { terms: ['node', 'typescript', 'react', 'next'], name: 'playwright-tester', desc: 'E2E testing with Playwright', type: 'skill', source: 'awesome-copilot' },
+  // Python
+  { terms: ['python', 'django', 'flask', 'fastapi'], name: 'python', desc: 'Python best practices', type: 'instruction', source: 'awesome-copilot' },
+  { terms: ['django'], name: 'django', desc: 'Django conventions', type: 'instruction', source: 'awesome-copilot' },
+  { terms: ['fastapi'], name: 'fastapi', desc: 'FastAPI patterns', type: 'instruction', source: 'awesome-copilot' },
+  // .NET
+  { terms: ['dotnet', '.net', 'csharp', 'c#'], name: 'dotnet', desc: '.NET conventions', type: 'instruction', source: 'awesome-copilot' },
+  // Rust
+  { terms: ['rust'], name: 'rust', desc: 'Rust best practices', type: 'instruction', source: 'awesome-copilot' },
+  // Go
+  { terms: ['go', 'golang'], name: 'go', desc: 'Go conventions', type: 'instruction', source: 'awesome-copilot' },
+  // Mobile
+  { terms: ['swift', 'ios'], name: 'swift', desc: 'Swift/iOS patterns', type: 'instruction', source: 'awesome-copilot' },
+  { terms: ['kotlin', 'android'], name: 'kotlin', desc: 'Kotlin/Android patterns', type: 'instruction', source: 'awesome-copilot' },
+  // DevOps / Infra
+  { terms: ['docker', 'kubernetes', 'devops'], name: 'docker', desc: 'Docker best practices', type: 'instruction', source: 'awesome-copilot' },
+  { terms: ['terraform'], name: 'terraform', desc: 'Terraform conventions', type: 'instruction', source: 'awesome-copilot' },
+];
+
+// Well-known skill repos matched by stack term → repo + suggested skill names (skills.sh)
 const SKILL_CATALOG = [
   { terms: ['*'], repo: 'anthropics/skills', skills: ['frontend-design', 'skill-creator'] },
   { terms: ['*'], repo: 'vercel-labs/agent-skills', skills: ['vercel-react-best-practices', 'web-design-guidelines'] },
@@ -109,6 +141,8 @@ export async function skillDiscovery({ cwd, answers, args }) {
   if (!env) {
     log.warn('Cannot run skills CLI: no bundled binary, pnpm, or npx found.');
     log.warn('Install Node.js (includes npx) or pnpm, then re-run.');
+    // Still show awesome-copilot recs (they don't need skills CLI)
+    await showAwesomeCopilotOnly(answers);
     return;
   }
 
@@ -133,64 +167,71 @@ export async function skillDiscovery({ cwd, answers, args }) {
   log.ok(`Running skills via ${env.label}`);
   log.raw('');
 
-  // ── Skill discovery ─────────────────────────────────────────────────
+  // ── Build recommendations from BOTH sources ─────────────────────────
+  const awesomeRecs = buildAwesomeRecommendations(answers);
+  const skillsShRecs = buildRecommendations(answers);
 
-  // 1. Build recommendations from catalog based on stack
-  const recs = buildRecommendations(answers);
-  if (recs.length === 0) {
-    log.dim('No stack-specific recommendations found.');
-  } else {
-    log.raw(`  ${pad('Skill', 36)} ${pad('Repo', 36)}`);
-    log.raw(`  ${'─'.repeat(36)} ${'─'.repeat(36)}`);
-    for (const r of recs) {
-      log.raw(`  ${pad(r.skill, 36)} ${pad(r.repo, 36)}`);
-    }
-    log.raw('');
-  }
+  // ── Display hero section ────────────────────────────────────────────
+  displayHeroRecommendations(awesomeRecs, skillsShRecs, answers);
 
-  // 2. Offer interactive search per stack term
+  // ── Combined picker ─────────────────────────────────────────────────
   const terms = suggestSearches(answers);
+
+  // Search skills.sh for additional results
+  const allFound = [];
   if (terms.length > 0) {
     log.dim(`Suggested searches: ${terms.map((t) => `"${t}"`).join(', ')}`);
     log.raw('');
-  }
 
-  // 2b. Run searches and capture results
-  const allFound = [];
-  for (const term of terms) {
-    const { go } = await prompts({
-      type: 'confirm',
-      name: 'go',
-      message: `Search skills.sh for "${term}"?`,
-      initial: true,
-    });
-    if (go) {
-      const output = await runSkillsCapture(env, ['find', term], cwd);
-      allFound.push(...parseSkillRefs(output));
+    for (const term of terms) {
+      const { go } = await prompts({
+        type: 'confirm',
+        name: 'go',
+        message: `Search skills.sh for "${term}"?`,
+        initial: true,
+      });
+      if (go) {
+        const output = await runSkillsCapture(env, ['find', term], cwd);
+        allFound.push(...parseSkillRefs(output));
+      }
     }
   }
 
-  // 3. Build combined skill picker — catalog recs + search results (deduped)
+  // Build combined skill picker — awesome recs + catalog recs + search results
   const seen = new Set();
   const choices = [];
 
-  for (const r of recs) {
-    const ref = `${r.repo}@${r.skill}`;
-    if (seen.has(ref)) continue;
-    seen.add(ref);
+  // Awesome-copilot recs first (hero placement)
+  for (const r of awesomeRecs) {
+    const key = `awesome:${r.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     choices.push({
-      title: `${r.skill} (${r.repo}) — recommended`,
-      value: { ref, repo: r.repo, skill: r.skill },
+      title: `${kleur.cyan('⬡')} ${r.name} ${kleur.dim(`(${r.desc})`)} ${kleur.cyan('← awesome-copilot')}`,
+      value: { source: 'awesome', name: r.name, type: r.type },
       selected: true,
     });
   }
 
+  // skills.sh catalog recs
+  for (const r of skillsShRecs) {
+    const ref = `${r.repo}@${r.skill}`;
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    choices.push({
+      title: `${kleur.yellow('◆')} ${r.skill} ${kleur.dim(`(${r.repo})`)} ${kleur.yellow('← skills.sh')}`,
+      value: { source: 'skillssh', ref, repo: r.repo, skill: r.skill },
+      selected: true,
+    });
+  }
+
+  // skills.sh search results
   for (const r of allFound) {
     if (seen.has(r.ref)) continue;
     seen.add(r.ref);
     choices.push({
-      title: `${r.ref} — ${r.installs}`,
-      value: { ref: r.ref },
+      title: `${kleur.yellow('◆')} ${r.ref} ${kleur.dim(`— ${r.installs}`)} ${kleur.yellow('← skills.sh')}`,
+      value: { source: 'skillssh', ref: r.ref },
       selected: false,
     });
   }
@@ -206,35 +247,52 @@ export async function skillDiscovery({ cwd, answers, args }) {
     });
 
     if (toInstall && toInstall.length > 0) {
-      // Group catalog recs by repo for efficient batch install
-      const byRepo = new Map();
-      const standalone = [];
+      // Separate awesome-copilot entries from skills.sh entries
+      const awesomeItems = toInstall.filter((i) => i.source === 'awesome');
+      const skillsShItems = toInstall.filter((i) => i.source === 'skillssh');
 
-      for (const item of toInstall) {
-        if (item.repo) {
-          if (!byRepo.has(item.repo)) byRepo.set(item.repo, []);
-          byRepo.get(item.repo).push(item.skill);
-        } else {
-          standalone.push(item.ref);
+      // Install awesome-copilot skills/instructions via npx skills (they're in the registry too)
+      if (awesomeItems.length > 0) {
+        log.raw('');
+        log.info(`${kleur.cyan('awesome-copilot')} resources selected: ${awesomeItems.map((i) => i.name).join(', ')}`);
+        log.dim('These will be installed via skills CLI from the awesome-copilot registry.');
+        for (const item of awesomeItems) {
+          log.info(`Installing ${item.name} (${item.type})...`);
+          await runSkills(env, ['add', `awesome-copilot@${item.name}`, '-a', 'github-copilot'], cwd);
         }
       }
 
-      for (const [repo, skills] of byRepo) {
-        const skillArgs = skills.flatMap((s) => ['--skill', s]);
-        log.info(`Installing from ${repo}: ${skills.join(', ')}`);
-        await runSkills(env, ['add', repo, ...skillArgs, '-a', 'github-copilot'], cwd);
-      }
+      // Install skills.sh entries
+      if (skillsShItems.length > 0) {
+        const byRepo = new Map();
+        const standalone = [];
 
-      for (const ref of standalone) {
-        log.info(`Installing ${ref}...`);
-        await runSkills(env, ['add', ref, '-a', 'github-copilot'], cwd);
+        for (const item of skillsShItems) {
+          if (item.repo) {
+            if (!byRepo.has(item.repo)) byRepo.set(item.repo, []);
+            byRepo.get(item.repo).push(item.skill);
+          } else {
+            standalone.push(item.ref);
+          }
+        }
+
+        for (const [repo, skills] of byRepo) {
+          const skillArgs = skills.flatMap((s) => ['--skill', s]);
+          log.info(`Installing from ${repo}: ${skills.join(', ')}`);
+          await runSkills(env, ['add', repo, ...skillArgs, '-a', 'github-copilot'], cwd);
+        }
+
+        for (const ref of standalone) {
+          log.info(`Installing ${ref}...`);
+          await runSkills(env, ['add', ref, '-a', 'github-copilot'], cwd);
+        }
       }
 
       await relocateSkills(cwd);
     }
   }
 
-  // 4. Offer freeform catch-all
+  // Offer freeform catch-all
   const { freeform } = await prompts({
     type: 'confirm',
     name: 'freeform',
@@ -246,7 +304,100 @@ export async function skillDiscovery({ cwd, answers, args }) {
     await relocateSkills(cwd);
   }
 
-  log.dim('Done. Run `npx skills find` anytime to discover more.');
+  // ── Post-install breadcrumbs (THE HERO FINISH) ──────────────────────
+  printBreadcrumbs();
+}
+
+// ── Hero display ──────────────────────────────────────────────────────
+
+function displayHeroRecommendations(awesomeRecs, skillsShRecs, answers) {
+  const stackLabel = [...(answers.stack || []), ...(answers.frameworks || [])].join(', ') || 'general';
+
+  log.raw('');
+  log.raw(kleur.bold().cyan('  ╔══════════════════════════════════════════════════════════════════╗'));
+  log.raw(kleur.bold().cyan('  ║') + kleur.bold('  📦 RECOMMENDED FOR YOUR STACK: ') + kleur.bold().white(stackLabel) + pad('', Math.max(0, 30 - stackLabel.length)) + kleur.bold().cyan(' ║'));
+  log.raw(kleur.bold().cyan('  ╚══════════════════════════════════════════════════════════════════╝'));
+
+  if (awesomeRecs.length > 0) {
+    log.raw('');
+    log.raw(kleur.cyan('  ⬡ Source: awesome-copilot') + kleur.dim('  (github/awesome-copilot · 30k+ ★)'));
+    log.raw(kleur.dim('  ─────────────────────────────────────────────────────────'));
+    for (const r of awesomeRecs) {
+      const typeTag = kleur.dim(`[${r.type}]`);
+      log.raw(`    ${kleur.green('✓')} ${pad(r.name, 28)} ${pad(r.desc, 32)} ${typeTag}`);
+    }
+  }
+
+  if (skillsShRecs.length > 0) {
+    log.raw('');
+    log.raw(kleur.yellow('  ◆ Source: skills.sh') + kleur.dim('  (skills.sh registry)'));
+    log.raw(kleur.dim('  ─────────────────────────────────────────────────────────'));
+    for (const r of skillsShRecs) {
+      log.raw(`    ${kleur.green('✓')} ${pad(r.skill, 28)} ${kleur.dim(r.repo)}`);
+    }
+  }
+
+  log.raw('');
+}
+
+/** Fallback when skills CLI is unavailable — show awesome-copilot recs as copy-paste commands */
+async function showAwesomeCopilotOnly(answers) {
+  const recs = buildAwesomeRecommendations(answers);
+  if (recs.length === 0) return;
+
+  log.raw('');
+  log.info('Cannot install skills automatically, but here are recommendations:');
+  displayHeroRecommendations(recs, [], answers);
+  log.raw(kleur.dim('  Install manually in VS Code Chat:'));
+  for (const r of recs) {
+    log.raw(`    ${kleur.white(`copilot plugin install awesome-copilot@${r.name}`)}`);
+  }
+  log.raw('');
+  printBreadcrumbs();
+}
+
+// ── Post-install breadcrumbs ──────────────────────────────────────────
+
+function printBreadcrumbs() {
+  log.raw('');
+  log.raw(kleur.bold().green('  ┌──────────────────────────────────────────────────────────────────┐'));
+  log.raw(kleur.bold().green('  │') + kleur.bold('  🎯 KEEP DISCOVERING — paste into VS Code / Copilot Chat:       ') + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  ├──────────────────────────────────────────────────────────────────┤'));
+  log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + '  Install the awesome-copilot suggestion skill:                   ' + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + kleur.white('    copilot plugin install awesome-copilot@suggest              ') + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + '  Add awesome-copilot MCP for ongoing search:                     ' + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + kleur.white('    Add to .vscode/mcp.json:                                   ') + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + kleur.dim('      "awesome-copilot": {                                     ') + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + kleur.dim('        "command": "npx",                                      ') + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + kleur.dim('        "args": ["-y", "awesome-copilot-mcp"]                  ') + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + kleur.dim('      }                                                        ') + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + '  Browse skills anytime:                                          ' + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + kleur.white('    npx skills find                                            ') + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
+  log.raw(kleur.bold().green('  └──────────────────────────────────────────────────────────────────┘'));
+  log.raw('');
+}
+
+// ── Awesome-copilot recommendation builder ────────────────────────────
+
+function buildAwesomeRecommendations(a) {
+  const stackLower = (a.stack || []).map((s) => s.toLowerCase());
+  const fwLower = (a.frameworks || []).map((f) => f.toLowerCase());
+  const all = [...stackLower, ...fwLower];
+  const seen = new Set();
+  const out = [];
+
+  for (const entry of AWESOME_CATALOG) {
+    const matches = entry.terms.includes('*') || entry.terms.some((t) => all.some((s) => s.includes(t)));
+    if (!matches) continue;
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
+    out.push({ name: entry.name, desc: entry.desc, type: entry.type, source: entry.source });
+  }
+  return out;
 }
 
 // ── Relocation ─────────────────────────────────────────────────────────

@@ -2,21 +2,38 @@
 
 > **Code Like I'm Five** — scaffold a 5-agent VS Code Copilot team into any repo.
 
+## Two ways to install
+
+### Full setup (recommended for teams)
+
 ```bash
 npx cli-five init
 ```
 
-That's it. Run it in any folder. It interviews you, scaffolds `.github/agents/` + project memory files, searches skills.sh for relevant skills, and tells you what to do next.
+Interviews you, scaffolds agents + memory files + stack-specific instructions, discovers skills from **awesome-copilot** and **skills.sh**, and tells you what to do next.
+
+### Quick plugin install (personal use)
+
+```
+copilot plugin install idusortus/cli-five
+```
+
+Installs the 5 agents to your Copilot profile. No project config, no interview — just the agents with sensible defaults.
 
 ## What you get
 
 ```
 your-repo/
 ├── .github/
-│   ├── agents/                  # 5 agents: Orchestrator, Planner, Coder, Designer, Reviewer
+│   ├── agents/                  # 5 agents with handoffs + subagent delegation
+│   │   ├── orchestrator.agent.md  # 📋 Plan  💻 Code  🎨 Design  🔍 Review
+│   │   ├── planner.agent.md       # 🎯 Execute  💻 Code Directly
+│   │   ├── coder.agent.md         # 🔍 Review  🎯 Back to Orchestrator
+│   │   ├── designer.agent.md      # 🔍 Review  🎯 Back to Orchestrator
+│   │   └── reviewer.agent.md      # 🎯 Back to Orchestrator  💻 Fix Issues
 │   ├── copilot-instructions.md  # Persona + project mandates from interview
-│   ├── instructions/            # Empty — populate via /agent-customization in chat
-│   └── skills/                  # Empty — populate via skills.sh
+│   ├── instructions/            # Stack-specific coding guidelines
+│   └── skills/                  # Installed skills from awesome-copilot + skills.sh
 ├── AGENTS.md                    # Tool-agnostic project context (agents.md standard)
 ├── PROJECT.md                   # Long-form vision (rarely changes)
 ├── STATE.md                     # Cross-session status (changes constantly)
@@ -24,6 +41,15 @@ your-repo/
 ├── agent-diary.md               # Append-only session log
 └── histories/                   # Per-agent accumulated learnings
 ```
+
+## Orchestration modes
+
+The Orchestrator supports **both** delegation patterns:
+
+- **Handoff buttons** — Click `📋 Plan`, `💻 Code`, `🎨 Design`, or `🔍 Review` to manually transition between agents with pre-filled context.
+- **Subagent delegation** — Ask the Orchestrator to handle a complex task and it calls Planner → Coder → Reviewer autonomously.
+
+Each specialist also has handoffs: Coder/Designer → Reviewer, Reviewer → Coder (fix loop), and everyone → back to Orchestrator.
 
 ## Commands
 
@@ -51,9 +77,10 @@ npx cli-five help
 2. **git init** — if needed. Asks first.
 3. **Overwrite gate** — double-confirms ("Proceed?" then "R U Sure?"). Only `--force --yes` bypasses.
 4. **Interview** — name, one-liner, stack, frameworks, goals, constraints, cost mode, persona toggle.
-5. **Scaffold** — writes 18 files. Substitutes answers into templates. Swaps `model:` per cost mode.
-6. **Skill discovery** — queries skills.sh via `npx skills find <term>` per detected stack. Recommends known-good skills, offers multiselect install, and launches interactive browser.
-7. **Next steps** — tells you to run `/agent-customization` for stack-specific instructions.
+5. **Scaffold** — writes 18 files. Substitutes answers into templates. Swaps `model:` per cost mode. Adds `handoffs:` to all agents.
+6. **Skill discovery** — the hero feature. Multi-source discovery from **awesome-copilot** (30k+ ★ community marketplace) and **skills.sh**. Color-coded recommendations, source attribution, multiselect install, and post-install breadcrumbs with copy-paste commands for the awesome-copilot suggestion skill and MCP server.
+7. **Custom instructions** — generates stack-specific `.instructions.md` files for detected languages.
+8. **Next steps** — tells you to use handoff buttons or autonomous mode, offers plugin install shortcut.
 
 ## Cost modes
 
@@ -76,6 +103,21 @@ Change anytime by editing the `model:` line in `.github/agents/*.agent.md`.
 }
 ```
 
+## Skill discovery
+
+cli-five searches **two sources** for skills matching your detected stack:
+
+| Source | What it has | Stars |
+|---|---|---|
+| **awesome-copilot** | Skills, instructions, agents, plugins from the GitHub community | 30k+ |
+| **skills.sh** | Curated skill repos (Vercel, Anthropic, Microsoft, etc.) | — |
+
+Recommendations show with source attribution and are pre-selected for one-click install. After installation, you get breadcrumbs for ongoing discovery:
+
+- **Suggest skill** — `copilot plugin install awesome-copilot@suggest` (AI-driven repo analysis)
+- **MCP server** — `awesome-copilot-mcp` for programmatic search from any agent
+- **CLI browser** — `npx skills find` for interactive search
+
 ## What this is not
 
 - **Not a runtime.** Once scaffolded, your repo doesn't depend on `cli-five`. You can uninstall the package and the agents still work.
@@ -95,8 +137,8 @@ ELI5 → CLI5. Code Like I'm Five. Five agents. Get it? Yeah, it's a stretch. Bu
 ## Local development
 
 ```bash
-git clone https://github.com/idusortus/squad-mine
-cd squad-mine
+git clone https://github.com/idusortus/cli-five
+cd cli-five
 npm install
 node bin/cli-five.mjs init --cwd /tmp/test-target
 ```

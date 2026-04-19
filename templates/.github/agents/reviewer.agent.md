@@ -5,6 +5,15 @@ model: Claude Opus 4.6 (copilot)
 tools: ['read', 'search', 'web', 'vscode/memory']
 agents: []
 user-invocable: true
+handoffs:
+  - label: "🎯 Back to Orchestrator"
+    agent: Orchestrator
+    prompt: "Review complete. See verdict above. Coordinate fixes or proceed."
+    send: false
+  - label: "💻 Fix Issues"
+    agent: Coder
+    prompt: "Fix the issues identified in the review above."
+    send: false
 ---
 
 ## Model Selection

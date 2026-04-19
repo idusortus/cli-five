@@ -4,6 +4,15 @@ description: "Writes production code following workspace conventions. Use when: 
 model: GPT-5.3-Codex (copilot)
 tools: ['vscode', 'execute', 'read', 'io.github.upstash/context7/*', 'github/*', 'edit', 'search', 'web', 'vscode/memory', 'todo']
 agents: []
+handoffs:
+  - label: "🔍 Review"
+    agent: Reviewer
+    prompt: "Review the changes I just made for correctness and conventions."
+    send: false
+  - label: "🎯 Back to Orchestrator"
+    agent: Orchestrator
+    prompt: "Implementation complete. Coordinate next steps."
+    send: false
 ---
 
 ## Model Selection
