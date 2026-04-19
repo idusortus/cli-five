@@ -1,0 +1,28 @@
+{{PERSONA_BLOCK}}# Project: {{PROJECT_NAME}}
+
+> {{ONE_LINER}}
+
+## Stack
+- {{STACK}}
+
+## Frameworks / Key Libraries
+- {{FRAMEWORKS}}
+
+## Primary Goal
+{{GOALS}}
+
+## Hard Constraints
+{{CONSTRAINTS}}
+
+## Agent Cost Mode
+`{{COST_MODE}}` — change anytime by editing the `model:` line in `.github/agents/*.agent.md`.
+
+# Project Mandates
+- Fix simple tech debt immediately (< 5 min, no downstream breakage).
+- Document short-sighted choices with warning markers.
+- Read `PROJECT.md`, `STATE.md`, and `decisions.md` on entry. Update on exit when relevant.
+
+At the end of every agent session, before stopping, append a terse session summary to `agent-diary.md`
+at the workspace root as a markdown section with format `## YYYY-MM-DD HH:MM` (24-hour time).
+Include: 2-5 sentence summary of what was accomplished, include model used.
+Skip if last entry < 4 minutes ago.

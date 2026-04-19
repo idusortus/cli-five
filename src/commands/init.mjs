@@ -1,0 +1,87 @@
+import kleur from 'kleur';
+import prompts from 'prompts';
+import { log } from '../util/log.mjs';
+import { detect } from '../steps/detect.mjs';
+import { confirmOverwriteIfNeeded } from '../steps/confirm.mjs';
+import { interview } from '../steps/interview.mjs';
+import { scaffold, summarize } from '../steps/scaffold.mjs';
+import { skillDiscovery } from '../steps/skills.mjs';
+import { isGitRepo, gitInit } from '../util/git.mjs';
+
+export async function init(args) {
+  const cwd = args.cwd;
+  log.raw(kleur.bold().magenta('\ncli-five init') + kleur.gray(`  ${cwd}`));
+
+  // 1. Detect
+  log.step('1/5 Detect workspace');
+  const detected = detect(cwd);
+  log.info(`Project: ${kleur.bold(detected.projectName)}`);
+  log.info(`Mode:    ${detected.isBrownfield ? kleur.yellow('brownfield') : kleur.green('greenfield')}`);
+  if (detected.stacks.length) log.info(`Stack:   ${detected.stacks.map((s) => s.label).join(', ')}`);
+  if (!detected.hasGit) log.warn('Not a git repository.');
+
+  // 2. git init if needed
+  if (!detected.hasGit) {
+    if (args.yes || (await ask('Run `git init`?', true))) {
+      gitInit(cwd);
+      log.ok('Initialised git repo.');
+    } else {
+      log.warn('Continuing without git. You will regret this.');
+    }
+  }
+
+  // 3. Overwrite gate
+  log.step('2/5 Confirm overwrites');
+  const ok = await confirmOverwriteIfNeeded(detected, args);
+  if (!ok) {
+    log.warn('Aborted. Nothing written.');
+    return;
+  }
+  if (!detected.hasAgents && !detected.hasCopilotInstructions) log.dim('No collisions.');
+
+  // 4. Interview
+  log.step('3/5 Interview');
+  const answers = await interview(detected, args);
+
+  // CLI --cost-mode override
+  if (args.costMode && ['premium', 'cheap', 'mixed'].includes(args.costMode)) {
+    answers.costMode = args.costMode;
+  }
+
+  // 5. Scaffold
+  log.step('4/5 Scaffold');
+  const written = scaffold({ cwd, answers, args });
+  if (args.dryRun) log.warn('--dry-run: no files written. Plan:');
+  log.raw(summarize(written, cwd));
+  if (!args.dryRun) log.ok(`Wrote ${written.length} files.`);
+
+  // 6. Skill discovery
+  log.step('5/5 Skill discovery');
+  await skillDiscovery({ cwd, answers, args });
+
+  // 7. Next steps
+  printNextSteps(answers);
+}
+
+async function ask(message, initial = false) {
+  const { v } = await prompts({ type: 'confirm', name: 'v', message, initial });
+  return Boolean(v);
+}
+
+function printNextSteps(answers) {
+  log.raw('');
+  log.raw(kleur.bold().green('Done. Next steps:'));
+  log.raw('');
+  log.raw(`  1. Open this folder in VS Code Insiders.`);
+  log.raw(`  2. Enable Copilot subagents (settings.json):`);
+  log.raw(kleur.gray(`        "chat.subagents.allowInvocationsFromSubagents": true`));
+  log.raw(`  3. Open Copilot Chat and verify the 5 agents appear (@ menu).`);
+  log.raw(`  4. Ask the Orchestrator to do something:`);
+  log.raw(kleur.gray(`        @Orchestrator read PROJECT.md and propose Phase 1.`));
+  log.raw(`  5. Generate stack-specific instructions:`);
+  log.raw(kleur.gray(`        Run /agent-customization in chat — it will read PROJECT.md`));
+  log.raw(kleur.gray(`        and produce .github/instructions/*.instructions.md files.`));
+  log.raw('');
+  log.raw(kleur.dim('Edit cost mode anytime by changing `model:` in .github/agents/*.agent.md.'));
+  log.raw('');
+}
