@@ -1,7 +1,7 @@
 import kleur from 'kleur';
 import prompts from 'prompts';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve, basename } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { resolve, basename, join, extname } from 'node:path';
 import { log } from '../util/log.mjs';
 import { detect } from '../steps/detect.mjs';
 import { confirmOverwriteIfNeeded } from '../steps/confirm.mjs';
@@ -47,39 +47,18 @@ export async function init(args) {
   let docHints;
 
   if (args.docs.length > 0) {
-    // --doc was passed on the CLI — use those files directly
+    // --doc was passed on the CLI — validate with retry
     docHints = loadDocs(args.docs, cwd);
+    if (docHints.files.length === 0) {
+      log.warn('None of the --doc files could be loaded.');
+    }
   } else if (args.yes) {
-    // --yes skips the choice — go straight to defaults
     docHints = loadDocs([], cwd);
   } else {
-    const { mode } = await prompts({
-      type: 'select',
-      name: 'mode',
-      message: 'How would you like to describe your project?',
-      choices: [
-        { title: 'Provide document(s)', value: 'docs', description: 'Feed existing files (README, PRD, etc.) — we extract what we can' },
-        { title: 'Answer questions', value: 'manual', description: 'Short interactive interview' },
-      ],
-      initial: 0,
-    });
-    if (mode === undefined) { log.warn('Cancelled.'); return; }
-
-    if (mode === 'docs') {
-      const { paths } = await prompts({
-        type: 'list',
-        name: 'paths',
-        message: 'File paths (comma-separated, relative to project root)',
-        separator: ',',
-      });
-      if (!paths || paths.length === 0) { log.warn('No files provided. Falling back to interview.'); }
-      docHints = loadDocs((paths || []).map(p => p.trim()).filter(Boolean), cwd);
-    } else {
-      docHints = loadDocs([], cwd);
-    }
+    docHints = await collectDocFiles(cwd);
   }
 
-  if (docHints.files.length > 0) {
+  if (docHints.files.length > 0 && args.docs.length > 0) {
     log.info(`Loaded ${docHints.files.length} doc${docHints.files.length > 1 ? 's' : ''}: ${docHints.files.join(', ')}`);
     if (docHints.projectName) log.dim(`  → project name: ${docHints.projectName}`);
     if (docHints.oneLiner) log.dim(`  → description: ${docHints.oneLiner}`);
@@ -149,6 +128,144 @@ function printNextSteps(answers) {
   log.raw('');
   log.raw(kleur.dim('Edit cost mode anytime by changing `model:` in .github/agents/*.agent.md.'));
   log.raw('');
+}
+
+// ── Interactive doc file collection ───────────────────────────────────
+
+const MANUAL_SENTINEL = '__manual__';
+const SKIP_SENTINEL = '__skip__';
+
+async function collectDocFiles(cwd) {
+  const { mode } = await prompts({
+    type: 'select',
+    name: 'mode',
+    message: 'How would you like to describe your project?',
+    choices: [
+      { title: 'Provide document(s)', value: 'docs', description: 'Feed existing files (README, PRD, etc.) — we extract what we can' },
+      { title: 'Answer questions', value: 'manual', description: 'Short interactive interview' },
+    ],
+    initial: 0,
+  });
+  if (mode === undefined || mode === 'manual') return loadDocs([], cwd);
+
+  // Retry loop — keep asking until we get valid files or user opts out
+  while (true) {
+    const selectedPaths = await pickFiles(cwd);
+
+    // User cancelled or chose skip
+    if (selectedPaths === null) return loadDocs([], cwd);
+
+    const hints = loadDocs(selectedPaths, cwd);
+    if (hints.files.length > 0) {
+      log.info(`Loaded ${hints.files.length} doc${hints.files.length > 1 ? 's' : ''}: ${hints.files.join(', ')}`);
+      if (hints.projectName) log.dim(`  → project name: ${hints.projectName}`);
+      if (hints.oneLiner) log.dim(`  → description: ${hints.oneLiner}`);
+      return hints;
+    }
+
+    // Nothing loaded — offer retry
+    log.warn('No valid files were loaded.');
+    const { next } = await prompts({
+      type: 'select',
+      name: 'next',
+      message: 'What would you like to do?',
+      choices: [
+        { title: 'Try selecting files again', value: 'retry' },
+        { title: 'Answer questions manually instead', value: 'manual' },
+      ],
+    });
+    if (next !== 'retry') return loadDocs([], cwd);
+  }
+}
+
+async function pickFiles(cwd) {
+  const candidates = discoverDocCandidates(cwd);
+
+  if (candidates.length > 0) {
+    const choices = [
+      ...candidates.map(f => ({ title: f, value: f })),
+      { title: kleur.dim('Type path(s) manually'), value: MANUAL_SENTINEL },
+      { title: kleur.dim('Skip — answer questions instead'), value: SKIP_SENTINEL },
+    ];
+
+    const { files } = await prompts({
+      type: 'autocompleteMultiselect',
+      name: 'files',
+      message: 'Select project documents',
+      choices,
+      hint: 'Type to filter, space to select, enter to confirm',
+      suggest: (input, choices) =>
+        choices.filter(c =>
+          c.value === MANUAL_SENTINEL || c.value === SKIP_SENTINEL ||
+          c.title.toLowerCase().includes(input.toLowerCase())
+        ),
+    });
+
+    if (!files || files.length === 0) return null;
+    if (files.includes(SKIP_SENTINEL)) return null;
+    if (!files.includes(MANUAL_SENTINEL)) return files;
+    // Fall through to manual entry
+  }
+
+  // Manual entry (also reached when no candidates found)
+  return await manualPathEntry(cwd);
+}
+
+async function manualPathEntry(cwd) {
+  const { raw } = await prompts({
+    type: 'list',
+    name: 'raw',
+    message: 'File paths (comma-separated, relative to project root)',
+    separator: ',',
+  });
+
+  const paths = (raw || []).map(p => p.trim()).filter(Boolean);
+  if (paths.length === 0) return null;
+
+  // Validate immediately so user sees which ones failed
+  const valid = [];
+  const invalid = [];
+  for (const p of paths) {
+    if (existsSync(resolve(cwd, p))) {
+      valid.push(p);
+    } else {
+      invalid.push(p);
+    }
+  }
+
+  if (invalid.length > 0) {
+    for (const p of invalid) log.warn(`Not found: ${p}`);
+  }
+
+  return valid.length > 0 ? valid : paths; // return all — loadDocs will warn again, triggers retry
+}
+
+function discoverDocCandidates(cwd) {
+  const IGNORE = new Set(['node_modules', '.git', '.github', 'dist', 'build', '.next', 'coverage', '.turbo', '.vercel']);
+  const DOC_EXTS = new Set(['.md', '.txt', '.rst', '.mdx']);
+  const DOC_NAMES = new Set(['package.json']);
+  const results = [];
+
+  function walk(dir, prefix) {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') && entry.name !== '.github') continue;
+      if (IGNORE.has(entry.name)) continue;
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (rel.split('/').length < 3) walk(join(dir, entry.name), rel);
+      } else {
+        const ext = extname(entry.name).toLowerCase();
+        if (DOC_EXTS.has(ext) || DOC_NAMES.has(entry.name.toLowerCase())) {
+          results.push(rel);
+        }
+      }
+    }
+  }
+
+  walk(cwd, '');
+  return results.sort();
 }
 
 // ── --doc file loading + extraction ───────────────────────────────────
