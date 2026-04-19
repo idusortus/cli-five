@@ -375,22 +375,20 @@ function runSkills(env, skillsArgs, cwd) {
 function runSkillsTracked(env, skillsArgs, cwd) {
   const { cmd, args } = env.runner(skillsArgs);
   return new Promise((resolve) => {
-    let output = '';
-    const proc = spawn(cmd, args, { cwd, stdio: ['inherit', 'pipe', 'pipe'] });
-    proc.stdout.on('data', (chunk) => {
-      const text = chunk.toString();
-      process.stdout.write(text);
-      output += text;
-    });
+    // stdout/stderr inherit so the child writes directly to the TTY.
+    // This prevents line-buffering from swallowing unterminated prompt lines
+    // (e.g. the global vs local install question from the skills CLI).
+    // Failure is detected via exit code; stderr still captured for reason extraction.
+    let stderrOutput = '';
+    const proc = spawn(cmd, args, { cwd, stdio: ['inherit', 'inherit', 'pipe'] });
     proc.stderr.on('data', (chunk) => {
       const text = chunk.toString();
       process.stderr.write(text);
-      output += text;
+      stderrOutput += text;
     });
     proc.on('exit', (code) => {
-      const clean = stripAnsi(output);
-      if (code !== 0 || /failed to clone|installation failed|canceled/i.test(clean)) {
-        const reason = extractFailureReason(clean);
+      if (code !== 0) {
+        const reason = extractFailureReason(stripAnsi(stderrOutput)) || `exited with code ${code}`;
         resolve({ ok: false, reason });
       } else {
         resolve({ ok: true, reason: null });
