@@ -1,6 +1,6 @@
 {
   "name": "cli-five",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Code Like I'm Five — scaffold a 5-agent VS Code Copilot team into any repo.",
   "type": "module",
   "bin": {
