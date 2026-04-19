@@ -1,6 +1,6 @@
 import prompts from 'prompts';
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { log } from '../util/log.mjs';
@@ -16,61 +16,82 @@ const SKILL_CATALOG = [
   { terms: ['rust'], repo: 'anthropics/skills', skills: ['code-review'] },
 ];
 
-/**
- * Resolve the bundled `skills` CLI binary from cli-five's own node_modules.
- * Falls back to system npx/pnpx if resolution fails.
- */
+// ── Environment detection ─────────────────────────────────────────────
+
 function resolveSkillsBin() {
   try {
     const require = createRequire(import.meta.url);
     const pkgPath = require.resolve('skills/package.json');
-    return { bin: join(dirname(pkgPath), 'bin', 'cli.mjs'), mode: 'bundled' };
+    const bin = join(dirname(pkgPath), 'bin', 'cli.mjs');
+    return existsSync(bin) ? bin : null;
   } catch {
     return null;
   }
 }
 
-/**
- * Detect whether pnpm is available in the user's environment.
- */
-function hasPnpm() {
+function whichVersion(cmd) {
   try {
-    execFileSync('pnpm', ['--version'], { stdio: 'ignore' });
-    return true;
+    return execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim()
+      .split('\n')[0];
   } catch {
-    return false;
+    return null;
   }
 }
 
-/**
- * Detect whether npx is available.
- */
-function hasNpx() {
-  try {
-    execFileSync('npx', ['--version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+/** Detect whether the target workspace itself uses pnpm. */
+function projectUsesPnpm(cwd) {
+  return existsSync(join(cwd, 'pnpm-lock.yaml')) || existsSync(join(cwd, 'pnpm-workspace.yaml'));
 }
 
 /**
- * Build the command + args to run a skills CLI command.
- * Priority: bundled binary > pnpm dlx > npx
+ * Detect the runtime environment.
+ * Returns { runner, label } where runner is a function (skillsArgs, cwd) → {cmd, args}.
  */
-function buildSkillsCmd(skillsArgs, env) {
-  const bundled = resolveSkillsBin();
-  if (bundled) {
-    return { cmd: process.execPath, args: [bundled.bin, ...skillsArgs] };
+function detectEnv(cwd) {
+  const bundledBin = resolveSkillsBin();
+  const pnpmVer = whichVersion('pnpm');
+  const npxVer = whichVersion('npx');
+  const projectPnpm = projectUsesPnpm(cwd);
+
+  // ── Terse status lines ────────────────────────────────────────────
+  log.info(`skills CLI (bundled) ${bundledBin ? '✓' : '✗ not resolved'}`);
+  log.info(`pnpm                 ${pnpmVer ? `✓ ${pnpmVer}` : '✗ not found'}${projectPnpm ? '  (project uses pnpm)' : ''}`);
+  log.info(`npx                  ${npxVer ? `✓ ${npxVer}` : '✗ not found'}`);
+
+  // ── Priority: bundled > pnpm (if project or system) > npx ─────────
+  if (bundledBin) {
+    return {
+      label: 'bundled skills CLI',
+      runner: (skillsArgs) => ({ cmd: process.execPath, args: [bundledBin, ...skillsArgs] }),
+      pnpmVer,
+      npxVer,
+      projectPnpm,
+    };
   }
-  if (env.pnpm) {
-    return { cmd: 'pnpm', args: ['dlx', 'skills', ...skillsArgs] };
+  if (pnpmVer) {
+    return {
+      label: 'pnpm dlx',
+      runner: (skillsArgs) => ({ cmd: 'pnpm', args: ['dlx', 'skills', ...skillsArgs] }),
+      pnpmVer,
+      npxVer,
+      projectPnpm,
+    };
   }
-  if (env.npx) {
-    return { cmd: 'npx', args: ['-y', 'skills', ...skillsArgs] };
+  if (npxVer) {
+    return {
+      label: 'npx',
+      runner: (skillsArgs) => ({ cmd: 'npx', args: ['-y', 'skills', ...skillsArgs] }),
+      pnpmVer,
+      npxVer,
+      projectPnpm,
+    };
   }
   return null;
 }
+
+// ── Main entry ────────────────────────────────────────────────────────
 
 export async function skillDiscovery({ cwd, answers, args }) {
   if (!args.skills) {
@@ -82,54 +103,43 @@ export async function skillDiscovery({ cwd, answers, args }) {
     return;
   }
 
-  // Detect environment
-  const env = { pnpm: hasPnpm(), npx: hasNpx() };
-  const bundled = resolveSkillsBin();
+  // ── Environment checks ──────────────────────────────────────────────
+  const env = detectEnv(cwd);
 
-  // Verify we can run skills at all
-  if (!bundled && !env.pnpm && !env.npx) {
-    log.warn('Cannot run skills CLI: no bundled binary, npx, or pnpm found.');
-    log.dim('Install Node.js with npm, or install pnpm, then re-run.');
+  if (!env) {
+    log.warn('Cannot run skills CLI: no bundled binary, pnpm, or npx found.');
+    log.warn('Install Node.js (includes npx) or pnpm, then re-run.');
     return;
   }
 
-  // Suggest pnpm if not present (non-blocking, one-time)
-  if (!env.pnpm && !args.yes) {
+  // Offer pnpm if the user doesn't have it
+  if (!env.pnpmVer) {
     const { wantPnpm } = await prompts({
       type: 'confirm',
       name: 'wantPnpm',
-      message: 'pnpm not detected. Install pnpm? (faster installs, stricter deps, saves disk space)',
+      message: 'pnpm not found. Install it? (faster, stricter deps, saves disk)',
       initial: false,
     });
     if (wantPnpm) {
-      log.info('Installing pnpm globally...');
       try {
         execFileSync('npm', ['install', '-g', 'pnpm'], { stdio: 'inherit' });
-        env.pnpm = true;
         log.ok('pnpm installed.');
       } catch (err) {
-        log.warn(`pnpm install failed: ${err.message}. Continuing with npm.`);
+        log.warn(`pnpm install failed: ${err.message}`);
       }
     }
   }
 
-  if (bundled) {
-    log.dim('Using bundled skills CLI.');
-  } else if (env.pnpm) {
-    log.dim('Using pnpm to run skills CLI.');
-  } else {
-    log.dim('Using npx to run skills CLI.');
-  }
-
+  log.ok(`Running skills via ${env.label}`);
   log.raw('');
-  log.raw('Skill discovery powered by skills.sh (Vercel)');
+
+  // ── Skill discovery ─────────────────────────────────────────────────
 
   // 1. Build recommendations from catalog based on stack
   const recs = buildRecommendations(answers);
   if (recs.length === 0) {
     log.dim('No stack-specific recommendations found.');
   } else {
-    log.raw('');
     log.raw(`  ${pad('Skill', 36)} ${pad('Repo', 36)}`);
     log.raw(`  ${'─'.repeat(36)} ${'─'.repeat(36)}`);
     for (const r of recs) {
@@ -145,7 +155,6 @@ export async function skillDiscovery({ cwd, answers, args }) {
     log.raw('');
   }
 
-  // 3. Offer to launch interactive find for each term
   for (const term of terms) {
     const { go } = await prompts({
       type: 'confirm',
@@ -154,11 +163,11 @@ export async function skillDiscovery({ cwd, answers, args }) {
       initial: true,
     });
     if (go) {
-      await runSkills(['find', term], cwd, env);
+      await runSkills(env, ['find', term], cwd);
     }
   }
 
-  // 4. Offer to install from well-known repos
+  // 3. Offer to install from well-known repos
   if (recs.length > 0) {
     const { install } = await prompts({
       type: 'multiselect',
@@ -173,7 +182,6 @@ export async function skillDiscovery({ cwd, answers, args }) {
     });
 
     if (install && install.length > 0) {
-      // Group by repo
       const byRepo = new Map();
       for (const r of install) {
         if (!byRepo.has(r.repo)) byRepo.set(r.repo, []);
@@ -182,15 +190,14 @@ export async function skillDiscovery({ cwd, answers, args }) {
       for (const [repo, skills] of byRepo) {
         const skillArgs = skills.flatMap((s) => ['--skill', s]);
         log.info(`Installing from ${repo}: ${skills.join(', ')}`);
-        await runSkills(['add', repo, ...skillArgs, '-a', 'github-copilot'], cwd, env);
+        await runSkills(env, ['add', repo, ...skillArgs, '-a', 'github-copilot'], cwd);
       }
 
-      // Offer to relocate from .agents/skills/ → .github/skills/
       await relocateSkills(cwd);
     }
   }
 
-  // 5. Offer freeform catch-all
+  // 4. Offer freeform catch-all
   const { freeform } = await prompts({
     type: 'confirm',
     name: 'freeform',
@@ -198,96 +205,76 @@ export async function skillDiscovery({ cwd, answers, args }) {
     initial: false,
   });
   if (freeform) {
-    await runSkills(['find'], cwd, env);
-
-    // The user may have installed skills via the browser — relocate again
+    await runSkills(env, ['find'], cwd);
     await relocateSkills(cwd);
   }
 
   log.dim('Done. Run `npx skills find` anytime to discover more.');
 }
 
-/**
- * Offer to move skills from .agents/skills/ to .github/skills/.
- * The skills CLI hardcodes .agents/skills/ for github-copilot.
- * VS Code Copilot discovers skills from both locations, but
- * .github/skills/ keeps everything co-located with the rest of
- * the Copilot customisation files.
- */
+// ── Relocation ─────────────────────────────────────────────────────────
+
 async function relocateSkills(cwd) {
   const src = join(cwd, '.agents', 'skills');
   const dest = join(cwd, '.github', 'skills');
 
   if (!existsSync(src)) return;
 
-  // Collect candidates
   const candidates = [];
   for (const entry of readdirSync(src, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     if (!existsSync(join(src, entry.name, 'SKILL.md'))) continue;
-    if (existsSync(join(dest, entry.name))) continue; // already there
+    if (existsSync(join(dest, entry.name))) continue;
     candidates.push(entry.name);
   }
 
   if (candidates.length === 0) return;
 
   log.raw('');
-  log.raw(`  Skills were installed to .agents/skills/ (skills.sh default for Copilot).`);
-  log.raw(`  cli-five prefers .github/skills/ to keep everything under .github/.`);
-  log.raw(`  Both locations work — Copilot discovers either.`);
-  log.raw('');
-  log.raw(`  Skills to move: ${candidates.join(', ')}`);
-  log.raw('');
+  log.info(`${candidates.length} skill${candidates.length > 1 ? 's' : ''} in .agents/skills/: ${candidates.join(', ')}`);
+  log.info('cli-five prefers .github/skills/ (co-located with agents & instructions).');
+  log.info('Both locations work — Copilot discovers either.');
 
   const { move } = await prompts({
     type: 'confirm',
     name: 'move',
-    message: 'Move installed skills from .agents/skills/ → .github/skills/?',
+    message: 'Move to .github/skills/?',
     initial: true,
   });
 
   if (!move) {
-    log.dim('Keeping skills in .agents/skills/. Both locations work fine.');
+    log.dim('Keeping skills in .agents/skills/.');
     return;
   }
 
   let moved = 0;
   for (const name of candidates) {
-    const target = join(dest, name);
     mkdirSync(dest, { recursive: true });
-    renameSync(join(src, name), target);
+    renameSync(join(src, name), join(dest, name));
     moved++;
   }
 
-  if (moved > 0) {
-    log.ok(`Relocated ${moved} skill${moved > 1 ? 's' : ''} → .github/skills/`);
+  log.ok(`Moved ${moved} skill${moved > 1 ? 's' : ''} → .github/skills/`);
 
-    // Clean up empty .agents/skills/ and .agents/ if empty
-    try {
-      const remaining = readdirSync(src);
-      if (remaining.length === 0) {
-        rmSync(src, { recursive: true });
-        const agentsDir = join(cwd, '.agents');
-        if (existsSync(agentsDir) && readdirSync(agentsDir).length === 0) {
-          rmSync(agentsDir, { recursive: true });
-        }
+  // Clean up empty dirs
+  try {
+    if (readdirSync(src).length === 0) {
+      rmSync(src, { recursive: true });
+      const agentsDir = join(cwd, '.agents');
+      if (existsSync(agentsDir) && readdirSync(agentsDir).length === 0) {
+        rmSync(agentsDir, { recursive: true });
       }
-    } catch {
-      /* best-effort cleanup */
     }
+  } catch {
+    /* best-effort */
   }
 }
 
-/**
- * Run a skills CLI command interactively.
- */
-function runSkills(skillsArgs, cwd, env) {
-  const resolved = buildSkillsCmd(skillsArgs, env);
-  if (!resolved) {
-    log.warn('skills CLI not available. Install npm/pnpm and retry.');
-    return Promise.resolve();
-  }
-  return runInteractive(resolved.cmd, resolved.args, cwd);
+// ── Runner ─────────────────────────────────────────────────────────────
+
+function runSkills(env, skillsArgs, cwd) {
+  const { cmd, args } = env.runner(skillsArgs);
+  return runInteractive(cmd, args, cwd);
 }
 
 function buildRecommendations(a) {
