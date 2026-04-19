@@ -94,6 +94,7 @@ function buildVars(a) {
     FRAMEWORKS: a.frameworks.length ? a.frameworks.join(', ') : 'None declared.',
     GOALS: a.goals || 'TODO — declare the primary goal.',
     CONSTRAINTS: a.constraints || 'None declared.',
+    QUICKSTART: a.quickstart || 'TODO — add install + run commands here.',
     COST_MODE: a.costMode,
     DATE: new Date().toISOString().slice(0, 10),
     PERSONA_BLOCK: a.snark ? PERSONA_BLOCK : '',

@@ -49,6 +49,11 @@ export async function init(args) {
     answers.costMode = args.costMode;
   }
 
+  if (answers.presetId && answers.presetId !== 'custom') {
+    log.info(`Preset: ${answers.presetId}`);
+  }
+  if (answers.frameworks.length) log.info(`Stack:  ${answers.stack.join(', ')} + ${answers.frameworks.join(', ')}`);
+
   // 5. Scaffold
   log.step('4/6 Scaffold');
   const written = scaffold({ cwd, answers, args });

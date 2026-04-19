@@ -54,6 +54,10 @@ Before writing code, read (if they exist):
 
 Before finishing, if any implementation choice was made (library selection, pattern choice, API approach), append an entry to `decisions.md` using the format in that file. Skip silently if no decisions were made.
 
+## README.md (MANDATORY)
+
+After any session that adds, changes, or removes user-facing functionality, update `README.md` at the project root. The README must contain at minimum: project name & one-liner, **copy-paste quickstart commands** (install deps + run), usage notes, and tech stack. If `README.md` does not exist, create it as the FIRST file before any other work. A new developer must go from clone → running app in < 2 minutes.
+
 ## History (MANDATORY)
 
 Before finishing, append at least one bullet to `histories/coder.md` below the `<!-- Append entries below this line -->` marker. Record: build quirks, API gotchas, pattern preferences, file structure observations, test insights. Format: `- YYYY-MM-DD: <learning>`. Skip only if the session had zero meaningful work.
