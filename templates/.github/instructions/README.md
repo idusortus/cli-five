@@ -8,7 +8,7 @@ Each file should:
 - include an `applyTo` glob (e.g. `**/*.ts`) OR a `description` for on-demand loading
 - be terse — instructions burn context every time they load
 
-Generate stack-appropriate instructions by running `/agent-customization` in Copilot Chat
-after `npx cli-five init`. It will read `PROJECT.md` and propose files based on your stack.
+Stack-specific instructions are generated during `npx cli-five init` (the instructions step).
+Re-run `npx cli-five init` to regenerate, or create them manually.
 
 Reference: https://code.visualstudio.com/docs/copilot/copilot-customization

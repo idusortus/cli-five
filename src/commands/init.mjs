@@ -6,6 +6,7 @@ import { confirmOverwriteIfNeeded } from '../steps/confirm.mjs';
 import { interview } from '../steps/interview.mjs';
 import { scaffold, summarize } from '../steps/scaffold.mjs';
 import { skillDiscovery } from '../steps/skills.mjs';
+import { instructionGeneration } from '../steps/instructions.mjs';
 import { isGitRepo, gitInit } from '../util/git.mjs';
 
 export async function init(args) {
@@ -13,7 +14,7 @@ export async function init(args) {
   log.raw(kleur.bold().magenta('\ncli-five init') + kleur.gray(`  ${cwd}`));
 
   // 1. Detect
-  log.step('1/5 Detect workspace');
+  log.step('1/6 Detect workspace');
   const detected = detect(cwd);
   log.info(`Project: ${kleur.bold(detected.projectName)}`);
   log.info(`Mode:    ${detected.isBrownfield ? kleur.yellow('brownfield') : kleur.green('greenfield')}`);
@@ -31,7 +32,7 @@ export async function init(args) {
   }
 
   // 3. Overwrite gate
-  log.step('2/5 Confirm overwrites');
+  log.step('2/6 Confirm overwrites');
   const ok = await confirmOverwriteIfNeeded(detected, args);
   if (!ok) {
     log.warn('Aborted. Nothing written.');
@@ -40,7 +41,7 @@ export async function init(args) {
   if (!detected.hasAgents && !detected.hasCopilotInstructions) log.dim('No collisions.');
 
   // 4. Interview
-  log.step('3/5 Interview');
+  log.step('3/6 Interview');
   const answers = await interview(detected, args);
 
   // CLI --cost-mode override
@@ -49,17 +50,28 @@ export async function init(args) {
   }
 
   // 5. Scaffold
-  log.step('4/5 Scaffold');
+  log.step('4/6 Scaffold');
   const written = scaffold({ cwd, answers, args });
   if (args.dryRun) log.warn('--dry-run: no files written. Plan:');
   log.raw(summarize(written, cwd));
   if (!args.dryRun) log.ok(`Wrote ${written.length} files.`);
 
   // 6. Skill discovery
-  log.step('5/5 Skill discovery');
+  log.step('5/6 Skill discovery');
   await skillDiscovery({ cwd, answers, args });
 
-  // 7. Next steps
+  // 7. Custom instructions
+  log.step('6/6 Custom instructions');
+  const instrWritten = await instructionGeneration({ cwd, answers, args });
+  if (instrWritten && instrWritten.length > 0) {
+    if (args.dryRun) log.warn('--dry-run: instruction plan:');
+    for (const w of instrWritten) {
+      log.raw(`  ${w.written ? '+' : '~'} ${w.path.replace(cwd + '/', '')}`);
+    }
+    if (!args.dryRun) log.ok(`Wrote ${instrWritten.length} instruction file${instrWritten.length > 1 ? 's' : ''}.`);
+  }
+
+  // 8. Next steps
   printNextSteps(answers);
 }
 
@@ -78,9 +90,9 @@ function printNextSteps(answers) {
   log.raw(`  3. Open Copilot Chat and verify the 5 agents appear (@ menu).`);
   log.raw(`  4. Ask the Orchestrator to do something:`);
   log.raw(kleur.gray(`        @Orchestrator read PROJECT.md and propose Phase 1.`));
-  log.raw(`  5. Generate stack-specific instructions:`);
-  log.raw(kleur.gray(`        Run /agent-customization in chat — it will read PROJECT.md`));
-  log.raw(kleur.gray(`        and produce .github/instructions/*.instructions.md files.`));
+  log.raw(`  5. Review generated instruction files in .github/instructions/.`);
+  log.raw(kleur.gray(`        Edit applyTo globs and guidelines to fit your project.`));
+  log.raw(kleur.gray(`        Installed skills are in .agents/skills/ (from skills.sh).`));
   log.raw('');
   log.raw(kleur.dim('Edit cost mode anytime by changing `model:` in .github/agents/*.agent.md.'));
   log.raw('');
