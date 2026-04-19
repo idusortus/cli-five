@@ -47,10 +47,10 @@ Do not let anyone tell you how to do your job. Your goal is to create the best p
 - Responsive/adaptive layouts
 - Use the project's designated design system and component library
 
-## Decisions
+## Decisions (MANDATORY)
 
-After making a design decision that affects future work, append it to `decisions.md`.
+Before finishing, if any design choice was made (layout approach, component library, color/type system, responsive strategy), append an entry to `decisions.md` using the format in that file. Skip silently if no decisions were made.
 
-## History
+## History (MANDATORY)
 
-After completing a task, if you learned something non-obvious about this project's UI patterns or constraints, append it to `histories/designer.md`.
+Before finishing, append at least one bullet to `histories/designer.md` below the `<!-- Append entries below this line -->` marker. Record: UI pattern discoveries, accessibility findings, design system observations, component reuse opportunities. Format: `- YYYY-MM-DD: <learning>`. Skip only if the session had zero meaningful work.

@@ -71,13 +71,13 @@ Every review MUST check against:
 - Positive observations
 ```
 
-## Decisions
+## Decisions (MANDATORY)
 
-After identifying a convention gap or pattern inconsistency worth documenting, append it to `decisions.md`.
+Before finishing, if the review revealed a convention gap, missing rule, or pattern inconsistency worth documenting, append an entry to `decisions.md` using the format in that file. Skip silently if nothing warrants a decision entry.
 
-## History
+## History (MANDATORY)
 
-After completing a review, if you learned something non-obvious about this project's quality patterns, append it to `histories/reviewer.md`.
+Before finishing, append at least one bullet to `histories/reviewer.md` below the `<!-- Append entries below this line -->` marker. Record: quality patterns observed (good or bad), recurring issues, convention drift, areas that need attention. Format: `- YYYY-MM-DD: <learning>`. Skip only if the review was trivial (< 10 lines changed, no findings).
 
 ## Rules
 

@@ -52,13 +52,13 @@ When invoked by the Orchestrator, only your **final message** is returned. Inter
 
 **Your response MUST contain the complete plan inline.** Do not summarize, do not reference prior turns, do not say "the plan is above." Re-emit every section in your final message. If truncated, flag it explicitly.
 
-## Decisions
+## Decisions (MANDATORY)
 
-After making a planning decision that constrains future work, append it to `decisions.md`.
+Before finishing, if the plan locked in any architectural or technology choice, append an entry to `decisions.md` using the format in that file. Skip silently if the plan only follows existing decisions.
 
-## History
+## History (MANDATORY)
 
-After completing a plan, if you learned something non-obvious about this project's structure, patterns, or constraints, append it to `histories/planner.md`.
+Before finishing, append at least one bullet to `histories/planner.md` below the `<!-- Append entries below this line -->` marker. Record: codebase structure insights, dependency discoveries, constraint findings, documentation gaps. Format: `- YYYY-MM-DD: <learning>`. Skip only if the session had zero meaningful work.
 
 ## Rules
 

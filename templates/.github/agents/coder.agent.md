@@ -50,10 +50,10 @@ Before writing code, read (if they exist):
 8. **Modifications** — Follow existing patterns. Prefer full-file rewrites over micro-edits unless told otherwise.
 9. **Quality** — Deterministic, testable behavior. Simple, focused tests.
 
-## Decisions
+## Decisions (MANDATORY)
 
-After making an implementation decision that affects future work, append it to `decisions.md`.
+Before finishing, if any implementation choice was made (library selection, pattern choice, API approach), append an entry to `decisions.md` using the format in that file. Skip silently if no decisions were made.
 
-## History
+## History (MANDATORY)
 
-After completing a task, if you learned something non-obvious about this project (build quirks, API gotchas, pattern preferences), append it to `histories/coder.md`.
+Before finishing, append at least one bullet to `histories/coder.md` below the `<!-- Append entries below this line -->` marker. Record: build quirks, API gotchas, pattern preferences, file structure observations, test insights. Format: `- YYYY-MM-DD: <learning>`. Skip only if the session had zero meaningful work.

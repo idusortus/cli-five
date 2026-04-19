@@ -63,13 +63,21 @@ Maintain visible counters in responses:
 
 When exhausted, state it and proceed with current information.
 
-## Decisions
+## Decisions (MANDATORY)
 
-After making a routing or architectural decision that affects future work, append it to `decisions.md` at the workspace root.
+Before finishing, if any routing, architectural, or technology choice was made during this session, append an entry to `decisions.md` at the workspace root using this format:
 
-## History
+    ## YYYY-MM-DD — <decision title>
+    **Context:** Why we needed to decide.
+    **Choice:** What we chose.
+    **Trade-offs:** What we gave up.
+    **Revisit:** Trigger that would re-open this decision (or "never").
 
-After completing a task, if you learned something non-obvious about this project, append it to `histories/orchestrator.md`.
+If no decisions were made, skip silently.
+
+## History (MANDATORY)
+
+Before finishing, append at least one bullet to `histories/orchestrator.md` below the `<!-- Append entries below this line -->` marker. Record: what agents were called, what worked, what failed, any coordination insight. Format: `- YYYY-MM-DD: <learning>`. Skip only if the session had zero meaningful work.
 
 ## Rules
 
