@@ -1,4 +1,7 @@
 import kleur from 'kleur';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { init } from './commands/init.mjs';
 import { doctor } from './commands/doctor.mjs';
 import { listStacks } from './commands/list-stacks.mjs';
@@ -23,6 +26,7 @@ ${kleur.bold('Flags')}
   --no-skills     Skip the skills.sh discovery step
   --cost-mode <m> Override cost mode (premium, cheap, mixed) — skips interview question
   --cwd <path>    Run against a directory other than the current one
+  --version, -v   Print version and exit
 `;
 
 export async function run(argv) {
@@ -41,6 +45,12 @@ export async function run(argv) {
     case '-h':
       process.stdout.write(HELP);
       return;
+    case '--version':
+    case '-v': {
+      const pkg = JSON.parse(readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '..', 'package.json'), 'utf8'));
+      process.stdout.write(`cli-five v${pkg.version}\n`);
+      return;
+    }
     default:
       process.stderr.write(kleur.red(`Unknown command: ${cmd}\n\n`));
       process.stdout.write(HELP);
@@ -59,6 +69,7 @@ function parse(argv) {
     else if (a === '--cost-mode') out.costMode = argv[++i];
     else if (a === '--cwd') out.cwd = argv[++i];
     else if (a === '--help' || a === '-h') out._.push('help');
+    else if (a === '--version' || a === '-v') out._.push('--version');
     else out._.push(a);
   }
   return out;
