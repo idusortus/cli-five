@@ -1,3 +1,4 @@
+import kleur from 'kleur';
 import prompts from 'prompts';
 
 // ── Preset stacks ─────────────────────────────────────────────────────
@@ -85,6 +86,9 @@ export async function interview(detected, args, docHints = {}) {
     throw new Error('Interview cancelled. Nothing was written.');
   };
 
+  const hasDocs = (docHints.files?.length ?? 0) > 0;
+  const skipHint = hasDocs ? kleur.dim('  (↵ to skip — your docs cover this)') : '';
+
   // ── Basic info ────────────────────────────────────────────────────
   const basic = await prompts(
     [
@@ -97,7 +101,7 @@ export async function interview(detected, args, docHints = {}) {
       {
         type: 'text',
         name: 'oneLiner',
-        message: 'One-line description (becomes PROJECT.md vision)',
+        message: `One-line description (becomes PROJECT.md vision)${skipHint}`,
         initial: docHints.oneLiner || '',
       },
     ],
@@ -158,13 +162,13 @@ export async function interview(detected, args, docHints = {}) {
       {
         type: 'text',
         name: 'goals',
-        message: 'Primary goal of this project (one sentence)',
+        message: `Primary goal of this project (one sentence)${skipHint}`,
         initial: docHints.goals || '',
       },
       {
         type: 'text',
         name: 'constraints',
-        message: 'Hard constraints (perf, deps, deploy, compliance — one sentence, optional)',
+        message: `Hard constraints (perf, deps, deploy, compliance — one sentence, optional)${skipHint}`,
         initial: docHints.constraints || '',
       },
       {
@@ -192,6 +196,7 @@ export async function interview(detected, args, docHints = {}) {
     presetId: preset,
     quickstart: chosenPreset?.quickstart || '',
     docs: docHints.raw || '',
+    docFiles: docHints.files || [],
   });
 }
 
@@ -211,6 +216,7 @@ function defaults(detected, docHints = {}) {
     presetId: hasDetected ? 'custom' : fallback.value,
     quickstart: hasDetected ? '' : fallback.quickstart,
     docs: docHints.raw || '',
+    docFiles: docHints.files || [],
   };
 }
 

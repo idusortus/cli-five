@@ -109,6 +109,8 @@ async function ask(message, initial = false) {
 }
 
 function printNextSteps(answers) {
+  const hasDocs = answers.docFiles?.length > 0;
+
   log.raw('');
   log.raw(kleur.bold().green('Done. Next steps:'));
   log.raw('');
@@ -118,8 +120,14 @@ function printNextSteps(answers) {
   log.raw(`  3. Open Copilot Chat — select an agent from the dropdown (${kleur.bold('not')} @mention).`);
   log.raw(`  4. Select ${kleur.bold('Orchestrator')} — use handoff buttons or ask it to delegate:`);
   log.raw(kleur.gray(`        📋 Plan  💻 Code  🎨 Design  🔍 Review`));
-  log.raw(`  5. Or go autonomous:`);
-  log.raw(kleur.gray(`        read PROJECT.md and implement Phase 1.`));
+  log.raw(`  5. ${hasDocs ? 'Kickoff prompt (paste this into Orchestrator):' : 'Or go autonomous:'}`);
+  if (hasDocs) {
+    const docList = answers.docFiles.join(', ');
+    log.raw(kleur.cyan(`        Review PROJECT.md (your source docs — ${docList} — are embedded`));
+    log.raw(kleur.cyan(`        in the Source Documents section) and begin implementation.`));
+  } else {
+    log.raw(kleur.gray(`        read PROJECT.md and implement Phase 1.`));
+  }
   log.raw(`  6. Review generated instruction files in .github/instructions/.`);
   log.raw(kleur.gray(`        Edit applyTo globs and guidelines to fit your project.`));
   log.raw('');
