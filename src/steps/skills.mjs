@@ -6,36 +6,9 @@ import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { log } from '../util/log.mjs';
 
-// ── Awesome-copilot catalog (github/awesome-copilot) ──────────────────
-// Curated subset mapped by stack term → { name, description, type }
-const AWESOME_CATALOG = [
-  // Universal
-  { terms: ['*'], name: 'frontend-design', desc: 'Production-grade UI design', type: 'skill', source: 'awesome-copilot' },
-  { terms: ['*'], name: 'conventional-commit', desc: 'Commit message standards', type: 'skill', source: 'awesome-copilot' },
-  { terms: ['*'], name: 'documentation-writer', desc: 'Generate project docs', type: 'skill', source: 'awesome-copilot' },
-  { terms: ['*'], name: 'mermaid-diagrams', desc: 'Create software diagrams', type: 'skill', source: 'awesome-copilot' },
-  // JavaScript / TypeScript / React / Next
-  { terms: ['node', 'typescript', 'javascript'], name: 'typescript', desc: 'TypeScript best practices', type: 'instruction', source: 'awesome-copilot' },
-  { terms: ['react', 'next'], name: 'reactjs', desc: 'React patterns & conventions', type: 'instruction', source: 'awesome-copilot' },
-  { terms: ['next'], name: 'nextjs', desc: 'Next.js patterns', type: 'instruction', source: 'awesome-copilot' },
-  { terms: ['node', 'typescript', 'react', 'next'], name: 'playwright-tester', desc: 'E2E testing with Playwright', type: 'skill', source: 'awesome-copilot' },
-  // Python
-  { terms: ['python', 'django', 'flask', 'fastapi'], name: 'python', desc: 'Python best practices', type: 'instruction', source: 'awesome-copilot' },
-  { terms: ['django'], name: 'django', desc: 'Django conventions', type: 'instruction', source: 'awesome-copilot' },
-  { terms: ['fastapi'], name: 'fastapi', desc: 'FastAPI patterns', type: 'instruction', source: 'awesome-copilot' },
-  // .NET
-  { terms: ['dotnet', '.net', 'csharp', 'c#'], name: 'dotnet', desc: '.NET conventions', type: 'instruction', source: 'awesome-copilot' },
-  // Rust
-  { terms: ['rust'], name: 'rust', desc: 'Rust best practices', type: 'instruction', source: 'awesome-copilot' },
-  // Go
-  { terms: ['go', 'golang'], name: 'go', desc: 'Go conventions', type: 'instruction', source: 'awesome-copilot' },
-  // Mobile
-  { terms: ['swift', 'ios'], name: 'swift', desc: 'Swift/iOS patterns', type: 'instruction', source: 'awesome-copilot' },
-  { terms: ['kotlin', 'android'], name: 'kotlin', desc: 'Kotlin/Android patterns', type: 'instruction', source: 'awesome-copilot' },
-  // DevOps / Infra
-  { terms: ['docker', 'kubernetes', 'devops'], name: 'docker', desc: 'Docker best practices', type: 'instruction', source: 'awesome-copilot' },
-  { terms: ['terraform'], name: 'terraform', desc: 'Terraform conventions', type: 'instruction', source: 'awesome-copilot' },
-];
+// ── Known-good skill repos (verified working) ────────────────────────
+// awesome-copilot skills are discovered dynamically via `skills find`.
+const AWESOME_COPILOT_REPO = 'github/awesome-copilot';
 
 // Well-known skill repos matched by stack term → repo + suggested skill names (skills.sh)
 const SKILL_CATALOG = [
@@ -141,8 +114,7 @@ export async function skillDiscovery({ cwd, answers, args }) {
   if (!env) {
     log.warn('Cannot run skills CLI: no bundled binary, pnpm, or npx found.');
     log.warn('Install Node.js (includes npx) or pnpm, then re-run.');
-    // Still show awesome-copilot recs (they don't need skills CLI)
-    await showAwesomeCopilotOnly(answers);
+    printBreadcrumbs();
     return;
   }
 
@@ -165,76 +137,85 @@ export async function skillDiscovery({ cwd, answers, args }) {
   }
 
   log.ok(`Running skills via ${env.label}`);
-  log.raw('');
 
-  // ── Build recommendations from BOTH sources ─────────────────────────
-  const awesomeRecs = buildAwesomeRecommendations(answers);
-  const skillsShRecs = buildRecommendations(answers);
-
-  // ── Display hero section ────────────────────────────────────────────
-  displayHeroRecommendations(awesomeRecs, skillsShRecs, answers);
-
-  // ── Combined picker ─────────────────────────────────────────────────
+  // ── 1. Auto-search all stack terms silently ─────────────────────────
   const terms = suggestSearches(answers);
+  const searchResults = [];
 
-  // Search skills.sh for additional results
-  const allFound = [];
   if (terms.length > 0) {
-    log.dim(`Suggested searches: ${terms.map((t) => `"${t}"`).join(', ')}`);
     log.raw('');
-
+    log.info(`Searching skills.sh for: ${terms.map((t) => kleur.bold(t)).join(', ')} ...`);
     for (const term of terms) {
-      const { go } = await prompts({
-        type: 'confirm',
-        name: 'go',
-        message: `Search skills.sh for "${term}"?`,
-        initial: true,
-      });
-      if (go) {
-        const output = await runSkillsCapture(env, ['find', term], cwd);
-        allFound.push(...parseSkillRefs(output));
-      }
+      const output = await runSkillsSilent(env, ['find', term], cwd);
+      searchResults.push(...parseSkillRefs(output));
+    }
+    if (searchResults.length > 0) {
+      log.ok(`Found ${searchResults.length} skill${searchResults.length > 1 ? 's' : ''} from search.`);
+    } else {
+      log.dim('No additional skills found via search.');
     }
   }
 
-  // Build combined skill picker — awesome recs + catalog recs + search results
+  // ── 2. Build static catalog recommendations ─────────────────────────
+  const catalogRecs = buildRecommendations(answers);
+
+  // ── 3. Categorize search results by source ──────────────────────────
+  const awesomeResults = [];
+  const otherResults = [];
+  for (const r of searchResults) {
+    const parsed = parseRef(r.ref);
+    if (parsed && parsed.repo === AWESOME_COPILOT_REPO) {
+      awesomeResults.push({ ...r, ...parsed });
+    } else {
+      otherResults.push(r);
+    }
+  }
+
+  // ── 4. Display hero section ─────────────────────────────────────────
+  displayHeroRecommendations(awesomeResults, catalogRecs, answers);
+
+  // ── 5. Build unified picker ─────────────────────────────────────────
   const seen = new Set();
   const choices = [];
 
-  // Awesome-copilot recs first (hero placement)
-  for (const r of awesomeRecs) {
-    const key = `awesome:${r.name}`;
+  // awesome-copilot results from search (dynamic, real names)
+  for (const r of awesomeResults) {
+    const key = r.ref;
     if (seen.has(key)) continue;
     seen.add(key);
     choices.push({
-      title: `${kleur.cyan('⬡')} ${r.name} ${kleur.dim(`(${r.desc})`)} ${kleur.cyan('← awesome-copilot')}`,
-      value: { source: 'awesome', name: r.name, type: r.type },
+      title: `${kleur.cyan('⬡')} ${r.skill} ${kleur.dim(`(${r.installs})`)} ${kleur.cyan('← awesome-copilot')}`,
+      value: { source: 'awesome', repo: r.repo, skill: r.skill, ref: r.ref },
       selected: true,
     });
   }
 
-  // skills.sh catalog recs
-  for (const r of skillsShRecs) {
+  // Static catalog recs (verified repos)
+  for (const r of catalogRecs) {
     const ref = `${r.repo}@${r.skill}`;
     if (seen.has(ref)) continue;
     seen.add(ref);
     choices.push({
       title: `${kleur.yellow('◆')} ${r.skill} ${kleur.dim(`(${r.repo})`)} ${kleur.yellow('← skills.sh')}`,
-      value: { source: 'skillssh', ref, repo: r.repo, skill: r.skill },
+      value: { source: 'catalog', ref, repo: r.repo, skill: r.skill },
       selected: true,
     });
   }
 
-  // skills.sh search results
-  for (const r of allFound) {
+  // Other search results (non-awesome-copilot)
+  for (const r of otherResults) {
     if (seen.has(r.ref)) continue;
     seen.add(r.ref);
+    const parsed = parseRef(r.ref);
     choices.push({
-      title: `${kleur.yellow('◆')} ${r.ref} ${kleur.dim(`— ${r.installs}`)} ${kleur.yellow('← skills.sh')}`,
-      value: { source: 'skillssh', ref: r.ref },
+      title: `${kleur.yellow('◆')} ${parsed ? parsed.skill : r.ref} ${kleur.dim(`(${parsed ? parsed.repo : ''} — ${r.installs})`)} ${kleur.yellow('← skills.sh')}`,
+      value: { source: 'search', ref: r.ref, repo: parsed?.repo, skill: parsed?.skill },
       selected: false,
     });
   }
+
+  // ── 6. Prompt user to select skills ─────────────────────────────────
+  const installResults = [];
 
   if (choices.length > 0) {
     log.raw('');
@@ -247,49 +228,45 @@ export async function skillDiscovery({ cwd, answers, args }) {
     });
 
     if (toInstall && toInstall.length > 0) {
-      // Separate awesome-copilot entries from skills.sh entries
-      const awesomeItems = toInstall.filter((i) => i.source === 'awesome');
-      const skillsShItems = toInstall.filter((i) => i.source === 'skillssh');
+      log.raw('');
 
-      // Install awesome-copilot skills/instructions via npx skills (they're in the registry too)
-      if (awesomeItems.length > 0) {
-        log.raw('');
-        log.info(`${kleur.cyan('awesome-copilot')} resources selected: ${awesomeItems.map((i) => i.name).join(', ')}`);
-        log.dim('These will be installed via skills CLI from the awesome-copilot registry.');
-        for (const item of awesomeItems) {
-          log.info(`Installing ${item.name} (${item.type})...`);
-          await runSkills(env, ['add', `awesome-copilot@${item.name}`, '-a', 'github-copilot'], cwd);
+      // Group by repo for batch install
+      const byRepo = new Map();
+      const standalone = [];
+
+      for (const item of toInstall) {
+        if (item.repo && item.skill) {
+          if (!byRepo.has(item.repo)) byRepo.set(item.repo, []);
+          byRepo.get(item.repo).push(item.skill);
+        } else if (item.ref) {
+          standalone.push(item.ref);
         }
       }
 
-      // Install skills.sh entries
-      if (skillsShItems.length > 0) {
-        const byRepo = new Map();
-        const standalone = [];
-
-        for (const item of skillsShItems) {
-          if (item.repo) {
-            if (!byRepo.has(item.repo)) byRepo.set(item.repo, []);
-            byRepo.get(item.repo).push(item.skill);
-          } else {
-            standalone.push(item.ref);
-          }
+      // Batch install per repo
+      for (const [repo, skills] of byRepo) {
+        const skillArgs = skills.flatMap((s) => ['--skill', s]);
+        log.info(`Installing from ${kleur.bold(repo)}: ${skills.join(', ')}`);
+        const result = await runSkillsTracked(env, ['add', repo, ...skillArgs, '-a', 'github-copilot'], cwd);
+        for (const s of skills) {
+          installResults.push({ name: `${repo}@${s}`, ...result });
         }
+      }
 
-        for (const [repo, skills] of byRepo) {
-          const skillArgs = skills.flatMap((s) => ['--skill', s]);
-          log.info(`Installing from ${repo}: ${skills.join(', ')}`);
-          await runSkills(env, ['add', repo, ...skillArgs, '-a', 'github-copilot'], cwd);
-        }
-
-        for (const ref of standalone) {
-          log.info(`Installing ${ref}...`);
-          await runSkills(env, ['add', ref, '-a', 'github-copilot'], cwd);
-        }
+      // Standalone refs
+      for (const ref of standalone) {
+        log.info(`Installing ${ref}...`);
+        const result = await runSkillsTracked(env, ['add', ref, '-a', 'github-copilot'], cwd);
+        installResults.push({ name: ref, ...result });
       }
 
       await relocateSkills(cwd);
     }
+  }
+
+  // ── 7. Install summary ──────────────────────────────────────────────
+  if (installResults.length > 0) {
+    printInstallSummary(installResults);
   }
 
   // Offer freeform catch-all
@@ -310,7 +287,7 @@ export async function skillDiscovery({ cwd, answers, args }) {
 
 // ── Hero display ──────────────────────────────────────────────────────
 
-function displayHeroRecommendations(awesomeRecs, skillsShRecs, answers) {
+function displayHeroRecommendations(awesomeResults, catalogRecs, answers) {
   const stackLabel = [...(answers.stack || []), ...(answers.frameworks || [])].join(', ') || 'general';
 
   log.raw('');
@@ -318,42 +295,50 @@ function displayHeroRecommendations(awesomeRecs, skillsShRecs, answers) {
   log.raw(kleur.bold().cyan('  ║') + kleur.bold('  📦 RECOMMENDED FOR YOUR STACK: ') + kleur.bold().white(stackLabel) + pad('', Math.max(0, 30 - stackLabel.length)) + kleur.bold().cyan(' ║'));
   log.raw(kleur.bold().cyan('  ╚══════════════════════════════════════════════════════════════════╝'));
 
-  if (awesomeRecs.length > 0) {
+  if (awesomeResults.length > 0) {
     log.raw('');
     log.raw(kleur.cyan('  ⬡ Source: awesome-copilot') + kleur.dim('  (github/awesome-copilot · 30k+ ★)'));
     log.raw(kleur.dim('  ─────────────────────────────────────────────────────────'));
-    for (const r of awesomeRecs) {
-      const typeTag = kleur.dim(`[${r.type}]`);
-      log.raw(`    ${kleur.green('✓')} ${pad(r.name, 28)} ${pad(r.desc, 32)} ${typeTag}`);
+    for (const r of awesomeResults) {
+      log.raw(`    ${kleur.green('✓')} ${pad(r.skill, 38)} ${kleur.dim(r.installs)}`);
     }
   }
 
-  if (skillsShRecs.length > 0) {
+  if (catalogRecs.length > 0) {
     log.raw('');
-    log.raw(kleur.yellow('  ◆ Source: skills.sh') + kleur.dim('  (skills.sh registry)'));
+    log.raw(kleur.yellow('  ◆ Source: skills.sh') + kleur.dim('  (verified repos)'));
     log.raw(kleur.dim('  ─────────────────────────────────────────────────────────'));
-    for (const r of skillsShRecs) {
-      log.raw(`    ${kleur.green('✓')} ${pad(r.skill, 28)} ${kleur.dim(r.repo)}`);
+    for (const r of catalogRecs) {
+      log.raw(`    ${kleur.green('✓')} ${pad(r.skill, 38)} ${kleur.dim(r.repo)}`);
     }
   }
 
   log.raw('');
 }
 
-/** Fallback when skills CLI is unavailable — show awesome-copilot recs as copy-paste commands */
-async function showAwesomeCopilotOnly(answers) {
-  const recs = buildAwesomeRecommendations(answers);
-  if (recs.length === 0) return;
+// ── Install summary ───────────────────────────────────────────────────
+
+function printInstallSummary(results) {
+  const succeeded = results.filter((r) => r.ok);
+  const failed = results.filter((r) => !r.ok);
 
   log.raw('');
-  log.info('Cannot install skills automatically, but here are recommendations:');
-  displayHeroRecommendations(recs, [], answers);
-  log.raw(kleur.dim('  Install manually in VS Code Chat:'));
-  for (const r of recs) {
-    log.raw(`    ${kleur.white(`copilot plugin install awesome-copilot@${r.name}`)}`);
+  if (succeeded.length > 0) {
+    log.ok(`Installed ${succeeded.length} skill${succeeded.length > 1 ? 's' : ''} successfully.`);
   }
-  log.raw('');
-  printBreadcrumbs();
+
+  if (failed.length > 0) {
+    log.raw('');
+    log.warn(`${failed.length} skill${failed.length > 1 ? 's' : ''} failed to install:`);
+    for (const f of failed) {
+      log.raw(`    ${kleur.red('✗')} ${f.name}`);
+      if (f.reason) {
+        log.raw(`      ${kleur.dim(f.reason)}`);
+      }
+    }
+    log.raw('');
+    log.dim('Install failed skills manually: npx skills add <owner/repo> --skill <name>');
+  }
 }
 
 // ── Post-install breadcrumbs ──────────────────────────────────────────
@@ -363,9 +348,6 @@ function printBreadcrumbs() {
   log.raw(kleur.bold().green('  ┌──────────────────────────────────────────────────────────────────┐'));
   log.raw(kleur.bold().green('  │') + kleur.bold('  🎯 KEEP DISCOVERING — paste into VS Code / Copilot Chat:       ') + kleur.bold().green('│'));
   log.raw(kleur.bold().green('  ├──────────────────────────────────────────────────────────────────┤'));
-  log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + '  Install the awesome-copilot suggestion skill:                   ' + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + kleur.white('    copilot plugin install awesome-copilot@suggest              ') + kleur.bold().green('│'));
   log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
   log.raw(kleur.bold().green('  │') + '  Add awesome-copilot MCP for ongoing search:                     ' + kleur.bold().green('│'));
   log.raw(kleur.bold().green('  │') + kleur.white('    Add to .vscode/mcp.json:                                   ') + kleur.bold().green('│'));
@@ -381,26 +363,61 @@ function printBreadcrumbs() {
   log.raw('');
 }
 
-// ── Awesome-copilot recommendation builder ────────────────────────────
+// ── Runner ─────────────────────────────────────────────────────────────
 
-function buildAwesomeRecommendations(a) {
-  const stackLower = (a.stack || []).map((s) => s.toLowerCase());
-  const fwLower = (a.frameworks || []).map((f) => f.toLowerCase());
-  const all = [...stackLower, ...fwLower];
-  const seen = new Set();
-  const out = [];
-
-  for (const entry of AWESOME_CATALOG) {
-    const matches = entry.terms.includes('*') || entry.terms.some((t) => all.some((s) => s.includes(t)));
-    if (!matches) continue;
-    if (seen.has(entry.name)) continue;
-    seen.add(entry.name);
-    out.push({ name: entry.name, desc: entry.desc, type: entry.type, source: entry.source });
-  }
-  return out;
+/** Run skills CLI with stdio: inherit (visible to user). */
+function runSkills(env, skillsArgs, cwd) {
+  const { cmd, args } = env.runner(skillsArgs);
+  return runInteractive(cmd, args, cwd);
 }
 
-// ── Relocation ─────────────────────────────────────────────────────────
+/** Run skills CLI, capture output, track success/failure. Returns { ok, reason }. */
+function runSkillsTracked(env, skillsArgs, cwd) {
+  const { cmd, args } = env.runner(skillsArgs);
+  return new Promise((resolve) => {
+    let output = '';
+    const proc = spawn(cmd, args, { cwd, stdio: ['inherit', 'pipe', 'pipe'] });
+    proc.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      process.stdout.write(text);
+      output += text;
+    });
+    proc.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      process.stderr.write(text);
+      output += text;
+    });
+    proc.on('exit', (code) => {
+      const clean = stripAnsi(output);
+      if (code !== 0 || /failed to clone|installation failed|canceled/i.test(clean)) {
+        const reason = extractFailureReason(clean);
+        resolve({ ok: false, reason });
+      } else {
+        resolve({ ok: true, reason: null });
+      }
+    });
+    proc.on('error', (err) => {
+      resolve({ ok: false, reason: err.message });
+    });
+  });
+}
+
+/** Run skills CLI silently — capture stdout/stderr without echoing. */
+function runSkillsSilent(env, skillsArgs, cwd) {
+  const { cmd, args } = env.runner(skillsArgs);
+  return new Promise((resolve) => {
+    let output = '';
+    const proc = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stdout.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    proc.stderr.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    proc.on('exit', () => resolve(output));
+    proc.on('error', () => resolve(''));
+  });
+}
 
 async function relocateSkills(cwd) {
   const src = join(cwd, '.agents', 'skills');
@@ -458,12 +475,7 @@ async function relocateSkills(cwd) {
   }
 }
 
-// ── Runner ─────────────────────────────────────────────────────────────
-
-function runSkills(env, skillsArgs, cwd) {
-  const { cmd, args } = env.runner(skillsArgs);
-  return runInteractive(cmd, args, cwd);
-}
+// ── Helpers ────────────────────────────────────────────────────────────
 
 function buildRecommendations(a) {
   const stackLower = (a.stack || []).map((s) => s.toLowerCase());
@@ -503,6 +515,24 @@ function suggestSearches(a) {
   return [...out];
 }
 
+/** Parse owner/repo@skill ref into { repo, skill }. */
+function parseRef(ref) {
+  const match = /^(.+?\/.+?)@(.+)$/.exec(ref);
+  if (!match) return null;
+  return { repo: match[1], skill: match[2] };
+}
+
+/** Extract a concise failure reason from skills CLI output. */
+function extractFailureReason(output) {
+  const cloneMatch = /Failed to clone[^:]*:\s*(.+)/i.exec(output);
+  if (cloneMatch) return cloneMatch[1].trim();
+
+  const errorMatch = /(?:error|failed)[:\s]+(.+)/im.exec(output);
+  if (errorMatch) return errorMatch[1].trim();
+
+  return 'Unknown error (check output above)';
+}
+
 function pad(s, n) {
   return (s || '').padEnd(n);
 }
@@ -515,30 +545,6 @@ function runInteractive(cmd, args, cwd) {
       log.warn(`Could not launch \`${cmd} ${args.join(' ')}\`: ${err.message}`);
       log.dim('Install/run it manually later. See https://skills.sh');
       resolve();
-    });
-  });
-}
-
-/** Run skills CLI, capture stdout/stderr while echoing to the terminal. */
-function runSkillsCapture(env, skillsArgs, cwd) {
-  const { cmd, args } = env.runner(skillsArgs);
-  return new Promise((resolve) => {
-    let output = '';
-    const proc = spawn(cmd, args, { cwd, stdio: ['inherit', 'pipe', 'pipe'] });
-    proc.stdout.on('data', (chunk) => {
-      const text = chunk.toString();
-      process.stdout.write(text);
-      output += text;
-    });
-    proc.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
-      process.stderr.write(text);
-      output += text;
-    });
-    proc.on('exit', () => resolve(output));
-    proc.on('error', (err) => {
-      log.warn(`Could not launch \`${cmd} ${args.join(' ')}\`: ${err.message}`);
-      resolve('');
     });
   });
 }

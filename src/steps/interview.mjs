@@ -7,6 +7,14 @@ import prompts from 'prompts';
 // 80+ benchmark with high snippet counts and well-indexed docs.
 const STACK_PRESETS = [
   {
+    title: 'Next.js + Supabase PWA (TypeScript)',
+    value: 'nextjs-supabase',
+    description: 'Next.js 15 static export, React 19, Tailwind v4, Supabase, SWR, Vercel hosting, PWA.',
+    stack: ['Node + TypeScript'],
+    frameworks: ['Next.js', 'React', 'Tailwind CSS', 'Supabase', 'SWR'],
+    quickstart: 'npx create-next-app@latest . --yes && npm i @supabase/supabase-js swr date-fns clsx && npm run dev',
+  },
+  {
     title: 'Next.js (TypeScript)',
     value: 'nextjs',
     description: 'Full-stack React. App Router, TypeScript, Tailwind. `npx create-next-app`',
