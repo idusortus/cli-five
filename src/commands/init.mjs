@@ -118,9 +118,8 @@ function printNextSteps(answers) {
   log.raw(`  2. Enable Copilot subagent invocations (settings.json):`);
   log.raw(kleur.gray(`        "chat.subagents.allowInvocationsFromSubagents": true`));
   log.raw(`  3. Open Copilot Chat — select an agent from the dropdown (${kleur.bold('not')} @mention).`);
-  log.raw(`  4. Select ${kleur.bold('Orchestrator')} — use handoff buttons or ask it to delegate:`);
-  log.raw(kleur.gray(`        📋 Plan  💻 Code  🎨 Design  🔍 Review`));
-  log.raw(`  5. ${hasDocs ? 'Kickoff prompt (paste this into Orchestrator):' : 'Or go autonomous:'}`);
+  log.raw(`  4. Select ${kleur.bold('Orchestrator')} — it routes tasks autonomously to Planner, Coder, Designer, and Reviewer.`);
+  log.raw(`  5. ${hasDocs ? 'Kickoff prompt (paste this into Orchestrator):' : 'Start building:'}`);
   if (hasDocs) {
     const docList = answers.docFiles.join(', ');
     log.raw(kleur.cyan(`        Review PROJECT.md (your source docs — ${docList} — are embedded`));

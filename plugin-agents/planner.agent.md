@@ -3,16 +3,6 @@ name: Planner
 description: "Creates implementation plans by researching the codebase, consulting documentation, and identifying edge cases."
 model: Claude Opus 4.6 (copilot)
 tools: ['read', 'search', 'web', 'vscode/memory']
-user-invocable: false
-handoffs:
-  - label: "🎯 Execute Plan"
-    agent: Orchestrator
-    prompt: "Plan is ready. Execute it phase by phase."
-    send: false
-  - label: "💻 Code Directly"
-    agent: Coder
-    prompt: "Implement this plan."
-    send: false
 ---
 
 # Planning Agent
