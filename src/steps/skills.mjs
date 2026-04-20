@@ -530,6 +530,10 @@ function pad(s, n) {
   return (s || '').padEnd(n);
 }
 
+/**
+ * Offer pnpm installation only for pnpm workspaces that are currently missing pnpm
+ * and can bootstrap it via npm on PATH.
+ */
 function shouldOfferPnpmInstall(env) {
   return Boolean(env && env.projectPnpm && !env.pnpmVer && env.npmVer);
 }
@@ -560,7 +564,8 @@ function buildBreadcrumbBox() {
 }
 
 function formatBoxLine(content = '', width = BREADCRUMB_BOX_WIDTH) {
-  return `${kleur.bold().green('  │ ')}${content}${' '.repeat(Math.max(0, width - stripAnsi(content).length))}${kleur.bold().green(' │')}`;
+  const paddingNeeded = Math.max(0, width - stripAnsi(content).length);
+  return `${kleur.bold().green('  │ ')}${content}${' '.repeat(paddingNeeded)}${kleur.bold().green(' │')}`;
 }
 
 function runInteractive(cmd, args, cwd) {
@@ -594,6 +599,7 @@ function parseSkillRefs(output) {
 
 export const __testables = {
   buildBreadcrumbBox,
+  detectEnv,
   formatBoxLine,
   shouldOfferPnpmInstall,
   stripAnsi,

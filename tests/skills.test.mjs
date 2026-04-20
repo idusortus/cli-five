@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import kleur from 'kleur';
+import { fileURLToPath } from 'node:url';
 import { __testables } from '../src/steps/skills.mjs';
 
-test('shouldOfferPnpmInstall only prompts when a pnpm project can be bootstrapped via npm', () => {
+test('shouldOfferPnpmInstall returns true only when project uses pnpm, pnpm is missing, and npm is available', () => {
   assert.equal(__testables.shouldOfferPnpmInstall(null), false);
 
   assert.equal(__testables.shouldOfferPnpmInstall({
@@ -29,6 +30,15 @@ test('shouldOfferPnpmInstall only prompts when a pnpm project can be bootstrappe
     pnpmVer: '9.0.0',
     npmVer: '10.9.2',
   }), false);
+});
+
+test('detectEnv includes npmVer when npm is available', () => {
+  const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+  const env = __testables.detectEnv(repoRoot);
+
+  assert.ok(env);
+  assert.equal(typeof env.npmVer, 'string');
+  assert.ok(env.npmVer.length > 0);
 });
 
 test('buildBreadcrumbBox keeps every line aligned even with ANSI styling', () => {
