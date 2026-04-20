@@ -18,7 +18,7 @@ Interviews you, scaffolds agents + memory files + stack-specific instructions, d
 copilot plugin install idusortus/cli-five
 ```
 
-Installs the 5 agents to your Copilot profile. No project config, no interview — just the agents with sensible defaults.
+Installs the 5 agents to your Copilot profile. No project config, no interview — just the agents with the same autonomous contracts shipped by the scaffolded templates.
 
 ## What you get
 
@@ -52,6 +52,8 @@ Orchestrator → [calls Planner] → [calls Coder] → [calls Reviewer] → done
 ```
 
 No buttons. No "click here to continue". Just results.
+
+The plugin agents and scaffolded `.github/agents/*.agent.md` templates are intentionally kept in sync. The repository test suite now checks that parity so the quick-install path does not quietly degrade.
 
 ## Commands
 
@@ -135,6 +137,11 @@ ELI5 → CLI5. Code Like I'm Five. Five agents. Get it? Yeah, it's a stretch. Bu
 - [bradygaster/squad](https://github.com/bradygaster/squad) — see [docs/squad-review.md](docs/squad-review.md)
 - [burkeholland/ultralight](https://github.com/burkeholland/ultralight) — see [docs/ultralight-review.md](docs/ultralight-review.md)
 - [gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done) — see [docs/gsd-review.md](docs/gsd-review.md)
+
+## Notes
+
+- The plugin install path and the scaffolded project path are both supported and now validated against each other.
+- `npm test` includes agent integrity checks in addition to the existing skill-step tests.
 
 ## Local development
 

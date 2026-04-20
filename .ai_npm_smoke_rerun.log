@@ -1,0 +1,25 @@
+
+> cli-five@0.2.8 smoke
+> node bin/cli-five.mjs --help
+
+cli-five — Code Like I'm Five
+Scaffold a 5-agent Copilot team into any repo.
+
+Usage
+  npx cli-five <command> [options]
+
+Commands
+  init            Interview + scaffold .github/* and project memory files
+  doctor          Validate an existing cli-five setup
+  list-stacks     Show detectable tech stacks
+  help            Show this message
+
+Flags
+  --yes, -y       Accept defaults and skip confirmations (still gated on overwrite)
+  --force         Overwrite without confirmation. Dangerous. Use with --yes.
+  --dry-run       Print actions without writing files
+  --no-skills     Skip the skills.sh discovery step
+  --doc <file>    Read project docs to pre-fill interview (repeatable)
+  --cost-mode <m> Override cost mode (premium, cheap, mixed) — skips interview question
+  --cwd <path>    Run against a directory other than the current one
+  --version, -v   Print version and exit

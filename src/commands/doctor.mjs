@@ -1,7 +1,8 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import kleur from 'kleur';
 import { log } from '../util/log.mjs';
+import { AGENT_FILES, validateAgentSource } from '../util/agents.mjs';
 
 const REQUIRED = [
   '.github/copilot-instructions.md',
@@ -36,6 +37,25 @@ export async function doctor(args) {
       log.err(p);
       fail++;
     }
+  }
+
+  log.step('Agent integrity');
+  for (const file of AGENT_FILES) {
+    const relPath = join('.github', 'agents', file);
+    const fullPath = join(cwd, relPath);
+    if (!existsSync(fullPath)) continue;
+
+    const errors = validateAgentSource(readFileSync(fullPath, 'utf8'), file);
+    if (errors.length === 0) {
+      log.ok(relPath);
+      continue;
+    }
+
+    log.err(relPath);
+    for (const error of errors) {
+      log.raw(kleur.red(`  - ${error}`));
+    }
+    fail++;
   }
 
   log.step('Optional');

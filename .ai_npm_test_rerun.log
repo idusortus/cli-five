@@ -1,0 +1,17 @@
+
+> cli-five@0.2.8 test
+> node --test tests/*.test.mjs
+
+✔ plugin agents match scaffold templates exactly (0.746205ms)
+✔ repo agent files satisfy required structure and contract markers (2.081299ms)
+✔ shouldOfferPnpmInstall returns true only when project uses pnpm, pnpm is missing, and npm is available (0.703124ms)
+✔ detectEnv includes npmVer when npm is available (321.33262ms)
+✔ buildBreadcrumbBox keeps every line aligned even with ANSI styling (0.575144ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 386.420394
