@@ -4,6 +4,8 @@ import kleur from 'kleur';
 import { __testables } from '../src/steps/skills.mjs';
 
 test('shouldOfferPnpmInstall only prompts when a pnpm project can be bootstrapped via npm', () => {
+  assert.equal(__testables.shouldOfferPnpmInstall(null), false);
+
   assert.equal(__testables.shouldOfferPnpmInstall({
     projectPnpm: true,
     pnpmVer: null,

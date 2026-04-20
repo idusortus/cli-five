@@ -9,6 +9,7 @@ import { log } from '../util/log.mjs';
 // ── Known-good skill repos (verified working) ────────────────────────
 // awesome-copilot skills are discovered dynamically via `skills find`.
 const AWESOME_COPILOT_REPO = 'github/awesome-copilot';
+const BREADCRUMB_BOX_WIDTH = 66;
 
 // Well-known skill repos matched by stack term → repo + suggested skill names (skills.sh)
 const SKILL_CATALOG = [
@@ -534,32 +535,31 @@ function shouldOfferPnpmInstall(env) {
 }
 
 function buildBreadcrumbBox() {
-  const width = 66;
-  const divider = kleur.bold().green(`  ├${'─'.repeat(width + 2)}┤`);
+  const divider = kleur.bold().green(`  ├${'─'.repeat(BREADCRUMB_BOX_WIDTH + 2)}┤`);
   const lines = [
-    formatBoxLine(kleur.bold('  KEEP DISCOVERING — paste into VS Code / Copilot Chat:'), width),
+    formatBoxLine(kleur.bold('  KEEP DISCOVERING — paste into VS Code / Copilot Chat:'), BREADCRUMB_BOX_WIDTH),
     divider,
-    formatBoxLine('', width),
-    formatBoxLine('  Add awesome-copilot MCP for ongoing search:', width),
-    formatBoxLine(kleur.white('    Add to .vscode/mcp.json:'), width),
-    formatBoxLine(kleur.dim('      "awesome-copilot": {'), width),
-    formatBoxLine(kleur.dim('        "command": "npx",'), width),
-    formatBoxLine(kleur.dim('        "args": ["-y", "awesome-copilot-mcp"]'), width),
-    formatBoxLine(kleur.dim('      }'), width),
-    formatBoxLine('', width),
-    formatBoxLine('  Browse skills anytime:', width),
-    formatBoxLine(kleur.white('    npx skills find'), width),
-    formatBoxLine('', width),
+    formatBoxLine('', BREADCRUMB_BOX_WIDTH),
+    formatBoxLine('  Add awesome-copilot MCP for ongoing search:', BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.white('    Add to .vscode/mcp.json:'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.dim('      "awesome-copilot": {'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.dim('        "command": "npx",'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.dim('        "args": ["-y", "awesome-copilot-mcp"]'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.dim('      }'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine('', BREADCRUMB_BOX_WIDTH),
+    formatBoxLine('  Browse skills anytime:', BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.white('    npx skills find'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine('', BREADCRUMB_BOX_WIDTH),
   ];
 
   return [
-    kleur.bold().green(`  ┌${'─'.repeat(width + 2)}┐`),
+    kleur.bold().green(`  ┌${'─'.repeat(BREADCRUMB_BOX_WIDTH + 2)}┐`),
     ...lines,
-    kleur.bold().green(`  └${'─'.repeat(width + 2)}┘`),
+    kleur.bold().green(`  └${'─'.repeat(BREADCRUMB_BOX_WIDTH + 2)}┘`),
   ];
 }
 
-function formatBoxLine(content = '', width = 66) {
+function formatBoxLine(content = '', width = BREADCRUMB_BOX_WIDTH) {
   return `${kleur.bold().green('  │ ')}${content}${' '.repeat(Math.max(0, width - stripAnsi(content).length))}${kleur.bold().green(' │')}`;
 }
 
