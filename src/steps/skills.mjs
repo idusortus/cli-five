@@ -9,6 +9,7 @@ import { log } from '../util/log.mjs';
 // ── Known-good skill repos (verified working) ────────────────────────
 // awesome-copilot skills are discovered dynamically via `skills find`.
 const AWESOME_COPILOT_REPO = 'github/awesome-copilot';
+const BREADCRUMB_BOX_WIDTH = 66;
 
 // Well-known skill repos matched by stack term → repo + suggested skill names (skills.sh)
 const SKILL_CATALOG = [
@@ -56,20 +57,17 @@ function projectUsesPnpm(cwd) {
  */
 function detectEnv(cwd) {
   const bundledBin = resolveSkillsBin();
+  const npmVer = whichVersion('npm');
   const pnpmVer = whichVersion('pnpm');
   const npxVer = whichVersion('npx');
   const projectPnpm = projectUsesPnpm(cwd);
-
-  // ── Terse status lines ────────────────────────────────────────────
-  log.info(`skills CLI (bundled) ${bundledBin ? '✓' : '✗ not resolved'}`);
-  log.info(`pnpm                 ${pnpmVer ? `✓ ${pnpmVer}` : '✗ not found'}${projectPnpm ? '  (project uses pnpm)' : ''}`);
-  log.info(`npx                  ${npxVer ? `✓ ${npxVer}` : '✗ not found'}`);
 
   // ── Priority: bundled > pnpm (if project or system) > npx ─────────
   if (bundledBin) {
     return {
       label: 'bundled skills CLI',
       runner: (skillsArgs) => ({ cmd: process.execPath, args: [bundledBin, ...skillsArgs] }),
+      npmVer,
       pnpmVer,
       npxVer,
       projectPnpm,
@@ -79,6 +77,7 @@ function detectEnv(cwd) {
     return {
       label: 'pnpm dlx',
       runner: (skillsArgs) => ({ cmd: 'pnpm', args: ['dlx', 'skills', ...skillsArgs] }),
+      npmVer,
       pnpmVer,
       npxVer,
       projectPnpm,
@@ -88,6 +87,7 @@ function detectEnv(cwd) {
     return {
       label: 'npx',
       runner: (skillsArgs) => ({ cmd: 'npx', args: ['-y', 'skills', ...skillsArgs] }),
+      npmVer,
       pnpmVer,
       npxVer,
       projectPnpm,
@@ -109,7 +109,7 @@ export async function skillDiscovery({ cwd, answers, args }) {
   }
 
   // ── Environment checks ──────────────────────────────────────────────
-  const env = detectEnv(cwd);
+  let env = detectEnv(cwd);
 
   if (!env) {
     log.warn('Cannot run skills CLI: no bundled binary, pnpm, or npx found.');
@@ -119,7 +119,7 @@ export async function skillDiscovery({ cwd, answers, args }) {
   }
 
   // Offer pnpm if the user doesn't have it
-  if (!env.pnpmVer) {
+  if (shouldOfferPnpmInstall(env)) {
     const { wantPnpm } = await prompts({
       type: 'confirm',
       name: 'wantPnpm',
@@ -130,10 +130,13 @@ export async function skillDiscovery({ cwd, answers, args }) {
       try {
         execFileSync('npm', ['install', '-g', 'pnpm'], { stdio: 'inherit' });
         log.ok('pnpm installed.');
+        env = detectEnv(cwd) || env;
       } catch (err) {
         log.warn(`pnpm install failed: ${err.message}`);
       }
     }
+  } else if (env.projectPnpm && !env.pnpmVer) {
+    log.dim(`pnpm not found. Using ${env.label} for skill discovery.`);
   }
 
   log.ok(`Running skills via ${env.label}`);
@@ -345,21 +348,9 @@ function printInstallSummary(results) {
 
 function printBreadcrumbs() {
   log.raw('');
-  log.raw(kleur.bold().green('  ┌──────────────────────────────────────────────────────────────────┐'));
-  log.raw(kleur.bold().green('  │') + kleur.bold('  🎯 KEEP DISCOVERING — paste into VS Code / Copilot Chat:       ') + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  ├──────────────────────────────────────────────────────────────────┤'));
-  log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + '  Add awesome-copilot MCP for ongoing search:                     ' + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + kleur.white('    Add to .vscode/mcp.json:                                   ') + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + kleur.dim('      "awesome-copilot": {                                     ') + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + kleur.dim('        "command": "npx",                                      ') + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + kleur.dim('        "args": ["-y", "awesome-copilot-mcp"]                  ') + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + kleur.dim('      }                                                        ') + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + '  Browse skills anytime:                                          ' + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + kleur.white('    npx skills find                                            ') + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  │') + '                                                                  ' + kleur.bold().green('│'));
-  log.raw(kleur.bold().green('  └──────────────────────────────────────────────────────────────────┘'));
+  for (const line of buildBreadcrumbBox()) {
+    log.raw(line);
+  }
   log.raw('');
 }
 
@@ -539,6 +530,44 @@ function pad(s, n) {
   return (s || '').padEnd(n);
 }
 
+/**
+ * Offer pnpm installation only for pnpm workspaces that are currently missing pnpm
+ * and can bootstrap it via npm on PATH.
+ */
+function shouldOfferPnpmInstall(env) {
+  return Boolean(env && env.projectPnpm && !env.pnpmVer && env.npmVer);
+}
+
+function buildBreadcrumbBox() {
+  const horizontalDivider = kleur.bold().green(`  ├${'─'.repeat(BREADCRUMB_BOX_WIDTH + 2)}┤`);
+  const lines = [
+    formatBoxLine(kleur.bold('  KEEP DISCOVERING -- paste into VS Code / Copilot Chat:'), BREADCRUMB_BOX_WIDTH),
+    horizontalDivider,
+    formatBoxLine('', BREADCRUMB_BOX_WIDTH),
+    formatBoxLine('  Add awesome-copilot MCP for ongoing search:', BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.white('    Add to .vscode/mcp.json:'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.dim('      "awesome-copilot": {'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.dim('        "command": "npx",'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.dim('        "args": ["-y", "awesome-copilot-mcp"]'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.dim('      }'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine('', BREADCRUMB_BOX_WIDTH),
+    formatBoxLine('  Browse skills anytime:', BREADCRUMB_BOX_WIDTH),
+    formatBoxLine(kleur.white('    npx skills find'), BREADCRUMB_BOX_WIDTH),
+    formatBoxLine('', BREADCRUMB_BOX_WIDTH),
+  ];
+
+  return [
+    kleur.bold().green(`  ┌${'─'.repeat(BREADCRUMB_BOX_WIDTH + 2)}┐`),
+    ...lines,
+    kleur.bold().green(`  └${'─'.repeat(BREADCRUMB_BOX_WIDTH + 2)}┘`),
+  ];
+}
+
+function formatBoxLine(content = '', width = BREADCRUMB_BOX_WIDTH) {
+  const paddingNeeded = Math.max(0, width - stripAnsi(content).length);
+  return `${kleur.bold().green('  │ ')}${content}${' '.repeat(paddingNeeded)}${kleur.bold().green(' │')}`;
+}
+
 function runInteractive(cmd, args, cwd) {
   return new Promise((resolve) => {
     const proc = spawn(cmd, args, { cwd, stdio: 'inherit' });
@@ -567,3 +596,11 @@ function parseSkillRefs(output) {
   }
   return results;
 }
+
+export const __testables = {
+  buildBreadcrumbBox,
+  detectEnv,
+  formatBoxLine,
+  shouldOfferPnpmInstall,
+  stripAnsi,
+};
