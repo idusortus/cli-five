@@ -539,10 +539,10 @@ function shouldOfferPnpmInstall(env) {
 }
 
 function buildBreadcrumbBox() {
-  const divider = kleur.bold().green(`  ├${'─'.repeat(BREADCRUMB_BOX_WIDTH + 2)}┤`);
+  const horizontalDivider = kleur.bold().green(`  ├${'─'.repeat(BREADCRUMB_BOX_WIDTH + 2)}┤`);
   const lines = [
-    formatBoxLine(kleur.bold('  KEEP DISCOVERING — paste into VS Code / Copilot Chat:'), BREADCRUMB_BOX_WIDTH),
-    divider,
+    formatBoxLine(kleur.bold('  KEEP DISCOVERING -- paste into VS Code / Copilot Chat:'), BREADCRUMB_BOX_WIDTH),
+    horizontalDivider,
     formatBoxLine('', BREADCRUMB_BOX_WIDTH),
     formatBoxLine('  Add awesome-copilot MCP for ongoing search:', BREADCRUMB_BOX_WIDTH),
     formatBoxLine(kleur.white('    Add to .vscode/mcp.json:'), BREADCRUMB_BOX_WIDTH),
