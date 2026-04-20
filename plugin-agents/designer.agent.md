@@ -4,15 +4,6 @@ description: "Handles all UI/UX design tasks. Use when: creating screens, layout
 model: Claude Opus 4.6 (copilot)
 tools: ['read', 'edit', 'search', 'web', 'vscode/memory']
 agents: []
-handoffs:
-  - label: "🔍 Review"
-    agent: Reviewer
-    prompt: "Review the UI changes for accessibility, conventions, and design quality."
-    send: false
-  - label: "🎯 Back to Orchestrator"
-    agent: Orchestrator
-    prompt: "Design work complete. Coordinate next steps."
-    send: false
 ---
 
 ## Design Principles

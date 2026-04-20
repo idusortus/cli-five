@@ -25,12 +25,12 @@ Installs the 5 agents to your Copilot profile. No project config, no interview �
 ```
 your-repo/
 ├── .github/
-│   ├── agents/                  # 5 agents with handoffs + subagent delegation
-│   │   ├── orchestrator.agent.md  # 📋 Plan  💻 Code  🎨 Design  🔍 Review
-│   │   ├── planner.agent.md       # 🎯 Execute  💻 Code Directly
-│   │   ├── coder.agent.md         # 🔍 Review  🎯 Back to Orchestrator
-│   │   ├── designer.agent.md      # 🔍 Review  🎯 Back to Orchestrator
-│   │   └── reviewer.agent.md      # 🎯 Back to Orchestrator  💻 Fix Issues
+│   ├── agents/                  # 5 agents — Orchestrator delegates autonomously
+│   │   ├── orchestrator.agent.md  # Routes tasks: Planner → Coder/Designer → Reviewer
+│   │   ├── planner.agent.md       # Researches codebase, produces implementation plans
+│   │   ├── coder.agent.md         # Writes production code, runs tests
+│   │   ├── designer.agent.md      # UI/UX design, layouts, theming
+│   │   └── reviewer.agent.md      # Code review, convention compliance
 │   ├── copilot-instructions.md  # Persona + project mandates from interview
 │   ├── instructions/            # Stack-specific coding guidelines
 │   └── skills/                  # Installed skills from awesome-copilot + skills.sh
@@ -42,14 +42,16 @@ your-repo/
 └── histories/                   # Per-agent accumulated learnings
 ```
 
-## Orchestration modes
+## How it works
 
-The Orchestrator supports **both** delegation patterns:
+Select the **Orchestrator** agent in Copilot Chat and describe what you want. The Orchestrator autonomously calls Planner → Coder/Designer → Reviewer without any manual handoff clicks.
 
-- **Handoff buttons** — Click `📋 Plan`, `💻 Code`, `🎨 Design`, or `🔍 Review` to manually transition between agents with pre-filled context.
-- **Subagent delegation** — Ask the Orchestrator to handle a complex task and it calls Planner → Coder → Reviewer autonomously.
+```
+User: implement from plan.md
+Orchestrator → [calls Planner] → [calls Coder] → [calls Reviewer] → done
+```
 
-Each specialist also has handoffs: Coder/Designer → Reviewer, Reviewer → Coder (fix loop), and everyone → back to Orchestrator.
+No buttons. No "click here to continue". Just results.
 
 ## Commands
 
@@ -77,10 +79,10 @@ npx cli-five help
 2. **git init** — if needed. Asks first.
 3. **Overwrite gate** — double-confirms ("Proceed?" then "R U Sure?"). Only `--force --yes` bypasses.
 4. **Interview** — name, one-liner, stack, frameworks, goals, constraints, cost mode, persona toggle.
-5. **Scaffold** — writes 18 files. Substitutes answers into templates. Swaps `model:` per cost mode. Adds `handoffs:` to all agents.
+5. **Scaffold** — writes 18 files. Substitutes answers into templates. Swaps `model:` per cost mode.
 6. **Skill discovery** — the hero feature. Multi-source discovery from **awesome-copilot** (30k+ ★ community marketplace) and **skills.sh**. Color-coded recommendations, source attribution, multiselect install, and post-install breadcrumbs with copy-paste commands for the awesome-copilot suggestion skill and MCP server.
 7. **Custom instructions** — generates stack-specific `.instructions.md` files for detected languages.
-8. **Next steps** — tells you to use handoff buttons or autonomous mode, offers plugin install shortcut.
+8. **Next steps** — tells you to open Copilot Chat, select Orchestrator, and start building. No button-clicking required.
 
 ## Cost modes
 
