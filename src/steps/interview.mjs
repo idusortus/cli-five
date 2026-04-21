@@ -2,66 +2,55 @@ import kleur from 'kleur';
 import prompts from 'prompts';
 
 // ── Preset stacks ─────────────────────────────────────────────────────
-// Chosen for: LLM familiarity, low setup friction, minimal config,
-// copy-paste quickstart, broad hosting support.
-// Research via Context7: Next.js, Vite+React, Express, Hono all score
-// 80+ benchmark with high snippet counts and well-indexed docs.
+// Curated defaults for fast project bootstrap with optional freeform mode.
 const STACK_PRESETS = [
   {
-    title: 'Next.js + Supabase PWA (TypeScript)',
-    value: 'nextjs-supabase',
-    description: 'Next.js 15 static export, React 19, Tailwind v4, Supabase, SWR, Vercel hosting, PWA.',
-    stack: ['Node + TypeScript'],
-    frameworks: ['Next.js', 'React', 'Tailwind CSS', 'Supabase', 'SWR'],
-    quickstart: 'npx create-next-app@latest . --yes && npm i @supabase/supabase-js swr date-fns clsx && npm run dev',
+    title: 'SPA: Vanilla HTML/CSS/JS + CDN',
+    value: 'spa-vanilla-cdn',
+    description: 'No build step. Browser-native app with CDN-loaded libraries.',
+    stack: ['HTML + CSS + JavaScript'],
+    frameworks: ['CDN (no bundler)'],
+    quickstart: 'mkdir -p public && printf "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>SPA</title></head><body><div id=\"app\"></div><script src=\"./app.js\"></script></body></html>" > public/index.html && printf "document.getElementById(\"app\").textContent = \"Hello SPA\";" > public/app.js',
   },
   {
-    title: 'Next.js (TypeScript)',
-    value: 'nextjs',
-    description: 'Full-stack React. App Router, TypeScript, Tailwind. `npx create-next-app`',
-    stack: ['Node + TypeScript'],
-    frameworks: ['Next.js', 'React', 'Tailwind CSS'],
-    quickstart: 'npx create-next-app@latest . --yes && npm run dev',
+    title: 'SPA: React + Vite',
+    value: 'spa-react-vite',
+    description: 'React single-page app powered by Vite.',
+    stack: ['Node + JavaScript'],
+    frameworks: ['React', 'Vite'],
+    quickstart: 'pnpm create vite@latest . --template react && pnpm install && pnpm dev',
   },
   {
-    title: 'Vite + React (TypeScript)',
-    value: 'vite-react',
-    description: 'SPA frontend. Lightning-fast HMR. `npm create vite`',
-    stack: ['Node + TypeScript'],
-    frameworks: ['Vite', 'React', 'TypeScript'],
-    quickstart: 'npm create vite@latest . -- --template react-ts && npm i && npm run dev',
-  },
-  {
-    title: 'Express API (TypeScript)',
-    value: 'express',
-    description: 'REST API server. Minimal, well-known, huge ecosystem.',
-    stack: ['Node + TypeScript'],
-    frameworks: ['Express', 'TypeScript'],
-    quickstart: 'npm init -y && npm i express typescript tsx @types/express && npx tsx src/index.ts',
-  },
-  {
-    title: 'Hono API (TypeScript)',
-    value: 'hono',
-    description: 'Ultrafast, Web Standards. Works on Node, Bun, Deno, Cloudflare.',
-    stack: ['Node + TypeScript'],
-    frameworks: ['Hono', 'TypeScript'],
-    quickstart: 'npm create hono@latest . && npm i && npm run dev',
-  },
-  {
-    title: 'Vite + Vue (TypeScript)',
-    value: 'vite-vue',
-    description: 'SPA frontend with Vue 3 + Composition API.',
-    stack: ['Node + TypeScript'],
-    frameworks: ['Vite', 'Vue', 'TypeScript'],
-    quickstart: 'npm create vite@latest . -- --template vue-ts && npm i && npm run dev',
-  },
-  {
-    title: 'Python + FastAPI',
-    value: 'fastapi',
-    description: 'Modern Python API with type hints and auto-docs.',
+    title: 'Web+DB: Python Flask + SQLite',
+    value: 'webdb-flask-sqlite',
+    description: 'Server-rendered web app with Flask and local SQLite storage.',
     stack: ['Python'],
-    frameworks: ['FastAPI', 'Pydantic', 'Uvicorn'],
-    quickstart: 'pip install fastapi uvicorn && uvicorn main:app --reload',
+    frameworks: ['Flask', 'SQLite'],
+    quickstart: 'python -m venv .venv && source .venv/bin/activate && pip install flask && python app.py',
+  },
+  {
+    title: 'Web+DB: Node.js + Express + SQLite',
+    value: 'webdb-express-sqlite',
+    description: 'Node web app with Express and SQLite.',
+    stack: ['Node + JavaScript'],
+    frameworks: ['Express', 'SQLite'],
+    quickstart: 'pnpm init && pnpm add express sqlite3 && node server.js',
+  },
+  {
+    title: 'Stack: Next.js + Prisma + SQLite',
+    value: 'stack-next-prisma-sqlite',
+    description: 'Full-stack Next.js with Prisma ORM and SQLite.',
+    stack: ['Node + TypeScript'],
+    frameworks: ['Next.js', 'Prisma', 'SQLite', 'React'],
+    quickstart: 'pnpm create next-app@latest . --ts --eslint --app --src-dir --import-alias "@/*" && pnpm add prisma @prisma/client && pnpm prisma init --datasource-provider sqlite && pnpm dev',
+  },
+  {
+    title: 'Stack: FastAPI + React/Vite',
+    value: 'stack-fastapi-react-vite',
+    description: 'FastAPI backend paired with a React/Vite frontend.',
+    stack: ['Python', 'Node + JavaScript'],
+    frameworks: ['FastAPI', 'React', 'Vite'],
+    quickstart: 'python -m venv .venv && source .venv/bin/activate && pip install fastapi uvicorn && pnpm create vite@latest web --template react && cd web && pnpm install && pnpm dev',
   },
   {
     title: 'Custom (freeform)',
@@ -200,10 +189,10 @@ export async function interview(detected, args, docHints = {}) {
   });
 }
 
-/** Default stack is Next.js + TypeScript when nothing detected and --yes. */
+/** Default stack is first preset when nothing is detected and --yes is used. */
 function defaults(detected, docHints = {}) {
   const hasDetected = detected.stacks.length > 0;
-  const fallback = STACK_PRESETS[0]; // Next.js (TypeScript)
+  const fallback = STACK_PRESETS[0];
   return {
     projectName: docHints.projectName || detected.projectName,
     oneLiner: docHints.oneLiner || '',

@@ -10,6 +10,7 @@ import { log } from '../util/log.mjs';
 // awesome-copilot skills are discovered dynamically via `skills find`.
 const AWESOME_COPILOT_REPO = 'github/awesome-copilot';
 const BREADCRUMB_BOX_WIDTH = 66;
+const PNPM_INSTALL_DOCS_URL = 'https://pnpm.io/installation';
 
 // Well-known skill repos matched by stack term → repo + suggested skill names (skills.sh)
 const SKILL_CATALOG = [
@@ -113,9 +114,15 @@ export async function skillDiscovery({ cwd, answers, args }) {
 
   if (!env) {
     log.warn('Cannot run skills CLI: no bundled binary, pnpm, or npx found.');
-    log.warn('Install Node.js (includes npx) or pnpm, then re-run.');
+    log.warn(`Install Node.js (includes npx) or pnpm, then re-run. ${PNPM_INSTALL_DOCS_URL}`);
     printBreadcrumbs();
     return;
+  }
+
+  if (env.pnpmVer) {
+    log.ok(`pnpm detected (${env.pnpmVer}).`);
+  } else {
+    log.dim('Tip: pnpm is recommended for faster installs and stricter dependency resolution.');
   }
 
   // Offer pnpm if the user doesn't have it
@@ -123,8 +130,8 @@ export async function skillDiscovery({ cwd, answers, args }) {
     const { wantPnpm } = await prompts({
       type: 'confirm',
       name: 'wantPnpm',
-      message: 'pnpm not found. Install it? (faster, stricter deps, saves disk)',
-      initial: false,
+      message: 'pnpm not found. Install it now? (recommended)',
+      initial: true,
     });
     if (wantPnpm) {
       try {
@@ -133,10 +140,9 @@ export async function skillDiscovery({ cwd, answers, args }) {
         env = detectEnv(cwd) || env;
       } catch (err) {
         log.warn(`pnpm install failed: ${err.message}`);
+        log.warn(`Install pnpm manually: ${PNPM_INSTALL_DOCS_URL}`);
       }
     }
-  } else if (env.projectPnpm && !env.pnpmVer) {
-    log.dim(`pnpm not found. Using ${env.label} for skill discovery.`);
   }
 
   log.ok(`Running skills via ${env.label}`);
@@ -535,7 +541,7 @@ function pad(s, n) {
  * and can bootstrap it via npm on PATH.
  */
 function shouldOfferPnpmInstall(env) {
-  return Boolean(env && env.projectPnpm && !env.pnpmVer && env.npmVer);
+  return Boolean(env && !env.pnpmVer && env.npmVer);
 }
 
 function buildBreadcrumbBox() {
