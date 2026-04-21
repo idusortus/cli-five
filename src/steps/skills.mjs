@@ -22,6 +22,15 @@ const SKILL_CATALOG = [
   { terms: ['rust'], repo: 'anthropics/skills', skills: ['code-review'] },
 ];
 
+// Core skills are the always-on baseline curated by cli-five.
+// Stack-specific and discovered skills are suggestions and must be opted-in.
+const CORE_CATALOG_SKILLS = new Set([
+  'anthropics/skills@frontend-design',
+  'anthropics/skills@skill-creator',
+  'vercel-labs/agent-skills@vercel-react-best-practices',
+  'vercel-labs/agent-skills@web-design-guidelines',
+]);
+
 // ── Environment detection ─────────────────────────────────────────────
 
 function resolveSkillsBin() {
@@ -189,19 +198,20 @@ export async function skillDiscovery({ cwd, answers, args }) {
     choices.push({
       title: `${kleur.cyan('⬡')} ${r.skill} ${kleur.dim(`(${r.installs})`)} ${kleur.cyan('← awesome-copilot')}`,
       value: { source: 'awesome', repo: r.repo, skill: r.skill, ref: r.ref },
-      selected: true,
+      selected: false,
     });
   }
 
   // Static catalog recs (verified repos)
   for (const r of catalogRecs) {
     const ref = `${r.repo}@${r.skill}`;
+    const core = isCoreCatalogSkill(r.repo, r.skill);
     if (seen.has(ref)) continue;
     seen.add(ref);
     choices.push({
-      title: `${kleur.yellow('◆')} ${r.skill} ${kleur.dim(`(${r.repo})`)} ${kleur.yellow('← skills.sh')}`,
+      title: `${kleur.yellow('◆')} ${r.skill} ${kleur.dim(`(${r.repo})`)} ${kleur.yellow(core ? '← core' : '← skills.sh (suggested)')}`,
       value: { source: 'catalog', ref, repo: r.repo, skill: r.skill },
-      selected: true,
+      selected: core,
     });
   }
 
@@ -222,6 +232,8 @@ export async function skillDiscovery({ cwd, answers, args }) {
 
   if (choices.length > 0) {
     log.raw('');
+    log.dim('Suggested skills are not pre-selected. Press Space to install only what you need.');
+    log.dim('Read every installed skill so you understand behavior and catch potential conflicts early.');
     const { toInstall } = await prompts({
       type: 'multiselect',
       name: 'toInstall',
@@ -490,6 +502,10 @@ function buildRecommendations(a) {
   return out;
 }
 
+function isCoreCatalogSkill(repo, skill) {
+  return CORE_CATALOG_SKILLS.has(`${repo}@${skill}`);
+}
+
 function suggestSearches(a) {
   const out = new Set();
   for (const s of a.stack || []) {
@@ -601,6 +617,7 @@ export const __testables = {
   buildBreadcrumbBox,
   detectEnv,
   formatBoxLine,
+  isCoreCatalogSkill,
   shouldOfferPnpmInstall,
   stripAnsi,
 };

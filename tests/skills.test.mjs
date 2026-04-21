@@ -51,3 +51,11 @@ test('buildBreadcrumbBox keeps every line aligned even with ANSI styling', () =>
   const coloredLine = __testables.formatBoxLine(kleur.white('    npx skills find'));
   assert.equal(__testables.stripAnsi(coloredLine).length, widths[0]);
 });
+
+test('isCoreCatalogSkill returns true only for cli-five core catalog skills', () => {
+  assert.equal(__testables.isCoreCatalogSkill('anthropics/skills', 'frontend-design'), true);
+  assert.equal(__testables.isCoreCatalogSkill('vercel-labs/agent-skills', 'vercel-react-best-practices'), true);
+
+  assert.equal(__testables.isCoreCatalogSkill('anthropics/skills', 'python-best-practices'), false);
+  assert.equal(__testables.isCoreCatalogSkill('github/awesome-copilot', 'any-skill'), false);
+});
