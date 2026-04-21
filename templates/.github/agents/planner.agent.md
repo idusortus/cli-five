@@ -1,7 +1,7 @@
 ---
 name: Planner
 description: "Creates implementation plans by researching the codebase, consulting documentation, and identifying edge cases. Use when: planning features, architectural decisions, or complex multi-file changes."
-model: Claude Opus 4.6 (copilot)
+model: Claude Sonnet 4.6 (copilot)
 tools: ['read', 'search', 'web', 'io.github.upstash/context7/*', 'vscode/memory']
 ---
 
