@@ -116,7 +116,9 @@ cli-five searches **two sources** for skills matching your detected stack:
 | **awesome-copilot** | Skills, instructions, agents, plugins from the GitHub community | 30k+ |
 | **skills.sh** | Curated skill repos (Vercel, Anthropic, Microsoft, etc.) | — |
 
-Recommendations show with source attribution and are pre-selected for one-click install. After installation, you get breadcrumbs for ongoing discovery:
+Recommendations show with source attribution. Only cli-five core skills are pre-selected; suggested skills from skills.sh and awesome-copilot require manual selection (press Space) before install. After installation, you get breadcrumbs for ongoing discovery:
+
+Take time to read each installed skill so you understand what it does and can catch overlap or conflicts before they affect your workflow.
 
 - **Suggest skill** — `copilot plugin install awesome-copilot@suggest` (AI-driven repo analysis)
 - **MCP server** — `awesome-copilot-mcp` for programmatic search from any agent
