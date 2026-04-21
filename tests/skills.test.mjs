@@ -4,7 +4,7 @@ import kleur from 'kleur';
 import { fileURLToPath } from 'node:url';
 import { __testables } from '../src/steps/skills.mjs';
 
-test('shouldOfferPnpmInstall returns true only when project uses pnpm, pnpm is missing, and npm is available', () => {
+test('shouldOfferPnpmInstall returns true when pnpm is missing and npm is available', () => {
   assert.equal(__testables.shouldOfferPnpmInstall(null), false);
 
   assert.equal(__testables.shouldOfferPnpmInstall({
@@ -17,7 +17,7 @@ test('shouldOfferPnpmInstall returns true only when project uses pnpm, pnpm is m
     projectPnpm: false,
     pnpmVer: null,
     npmVer: '10.9.2',
-  }), false);
+  }), true);
 
   assert.equal(__testables.shouldOfferPnpmInstall({
     projectPnpm: true,
