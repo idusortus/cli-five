@@ -1,7 +1,7 @@
 ---
 name: Reviewer
 description: "Reviews code and agent output for correctness, convention compliance, and architectural alignment. Use when: code review, auditing agent work, validating against specs."
-model: Claude Opus 4.6 (copilot)
+model: Claude Sonnet 4.6 (copilot)
 tools: ['read', 'search', 'web', 'vscode/memory']
 agents: []
 ---
@@ -10,7 +10,7 @@ agents: []
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Claude Opus 4.6 | 3x |
+| **Default** | Claude Sonnet 4.6 | 1x |
 | **Cheap** | GPT-5 mini | 0x (free) |
 
 To switch: change the `model` key in frontmatter above.

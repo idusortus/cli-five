@@ -10,7 +10,7 @@ agents: []
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Claude Opus 4.6 | 3x |
+| **Default** | Claude Sonnet 4.6 | 1x |
 | **Cheap** | GPT-5 mini | 0x (free) |
 
 To switch: change the `model` key in frontmatter above.

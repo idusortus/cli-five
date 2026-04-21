@@ -10,7 +10,7 @@ agents: []
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Claude Opus 4.6 | 3x |
+| **Default** | Gemini 3.1 Pro (Preview) (copilot) | 1x |
 | **Cheap** | GPT-4o | 0x (free) |
 
 To switch: change the `model` key in frontmatter above.
