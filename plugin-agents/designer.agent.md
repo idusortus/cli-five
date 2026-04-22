@@ -1,7 +1,7 @@
 ---
 name: Designer
 description: "Handles all UI/UX design tasks. Use when: creating screens, layouts, theming, navigation flows, design systems."
-model: Claude Opus 4.6 (copilot)
+model: Gemini 3.1 Pro (Preview) (copilot)
 tools: ['read', 'edit', 'search', 'web', 'io.github.upstash/context7/*', 'vscode/memory']
 agents: []
 ---
@@ -10,7 +10,7 @@ agents: []
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Claude Opus 4.6 | 3x |
+| **Default** | Gemini 3.1 Pro (Preview) (copilot) | 1x |
 | **Cheap** | GPT-4o | 0x (free) |
 
 To switch: change the `model` key in frontmatter above.
