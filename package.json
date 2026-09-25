@@ -3,6 +3,14 @@
   "version": "0.2.13",
   "description": "Code Like I'm Five — scaffold a 5-agent AI team (GitHub Copilot or OpenCode) into any repo.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/idusortus/cli-five.git"
+  },
+  "homepage": "https://github.com/idusortus/cli-five#readme",
+  "bugs": {
+    "url": "https://github.com/idusortus/cli-five/issues"
+  },
   "bin": {
     "cli-five": "bin/cli-five.mjs"
   },
