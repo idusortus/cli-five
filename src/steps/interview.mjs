@@ -69,7 +69,8 @@ const COST_MODES = [
 ];
 
 export async function interview(detected, args, docHints = {}) {
-  if (args.yes) return defaults(detected, docHints);
+  const platform = args.__platform || 'copilot';
+  if (args.yes) return defaults(detected, docHints, platform);
 
   const onCancel = () => {
     throw new Error('Interview cancelled. Nothing was written.');
@@ -146,39 +147,44 @@ export async function interview(detected, args, docHints = {}) {
   }
 
   // ── Remaining questions ───────────────────────────────────────────
-  const rest = await prompts(
-    [
-      {
-        type: 'text',
-        name: 'goals',
-        message: `Primary goal of this project (one sentence)${skipHint}`,
-        initial: docHints.goals || '',
-      },
-      {
-        type: 'text',
-        name: 'constraints',
-        message: `Hard constraints (perf, deps, deploy, compliance — one sentence, optional)${skipHint}`,
-        initial: docHints.constraints || '',
-      },
-      {
-        type: 'select',
-        name: 'costMode',
-        message: 'Agent cost mode',
-        choices: COST_MODES,
-        initial: 0,
-      },
-      {
-        type: 'confirm',
-        name: 'snark',
-        message: 'Include the snarky persona block in copilot-instructions.md?',
-        initial: true,
-      },
-    ],
-    { onCancel },
-  );
+  const remainingQuestions = [
+    {
+      type: 'text',
+      name: 'goals',
+      message: `Primary goal of this project (one sentence)${skipHint}`,
+      initial: docHints.goals || '',
+    },
+    {
+      type: 'text',
+      name: 'constraints',
+      message: `Hard constraints (perf, deps, deploy, compliance — one sentence, optional)${skipHint}`,
+      initial: docHints.constraints || '',
+    },
+  ];
+
+  if (platform === 'copilot') {
+    remainingQuestions.push({
+      type: 'select',
+      name: 'costMode',
+      message: 'Agent cost mode',
+      choices: COST_MODES,
+      initial: 0,
+    });
+  }
+
+  remainingQuestions.push({
+    type: 'confirm',
+    name: 'snark',
+    message: platform === 'copilot'
+      ? 'Include the snarky persona block in copilot-instructions.md?'
+      : 'Include the snarky persona block in AGENTS.md?',
+    initial: true,
+  });
+
+  const rest = await prompts(remainingQuestions, { onCancel });
 
   return normalize({
-    ...defaults(detected, docHints),
+    ...defaults(detected, docHints, platform),
     ...basic,
     ...stackAnswers,
     ...rest,
@@ -190,7 +196,7 @@ export async function interview(detected, args, docHints = {}) {
 }
 
 /** Default stack is first preset when nothing is detected and --yes is used. */
-function defaults(detected, docHints = {}) {
+function defaults(detected, docHints = {}, platform = 'copilot') {
   const hasDetected = detected.stacks.length > 0;
   const fallback = STACK_PRESETS[0];
   return {
@@ -200,7 +206,7 @@ function defaults(detected, docHints = {}) {
     frameworks: hasDetected ? [] : fallback.frameworks,
     goals: docHints.goals || '',
     constraints: docHints.constraints || '',
-    costMode: 'premium',
+    costMode: platform === 'copilot' ? 'premium' : 'none',
     snark: true,
     presetId: hasDetected ? 'custom' : fallback.value,
     quickstart: hasDetected ? '' : fallback.quickstart,

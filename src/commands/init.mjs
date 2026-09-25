@@ -9,21 +9,30 @@ import { interview } from '../steps/interview.mjs';
 import { scaffold, summarize } from '../steps/scaffold.mjs';
 import { skillDiscovery } from '../steps/skills.mjs';
 import { instructionGeneration } from '../steps/instructions.mjs';
+import { choosePlatform, chooseModels } from '../steps/platform.mjs';
 import { isGitRepo, gitInit } from '../util/git.mjs';
+import { platformLabel } from '../util/platforms.mjs';
 
 export async function init(args) {
   const cwd = args.cwd;
   log.raw(kleur.bold().magenta('\ncli-five init') + kleur.gray(`  ${cwd}`));
 
   // 1. Detect
-  log.step('1/6 Detect workspace');
+  log.step('1/8 Detect workspace');
   const detected = detect(cwd);
   log.info(`Project: ${kleur.bold(detected.projectName)}`);
   log.info(`Mode:    ${detected.isBrownfield ? kleur.yellow('brownfield') : kleur.green('greenfield')}`);
   if (detected.stacks.length) log.info(`Stack:   ${detected.stacks.map((s) => s.label).join(', ')}`);
   if (!detected.hasGit) log.warn('Not a git repository.');
 
-  // 2. git init if needed
+  // 2. Platform + CodeGraph
+  log.step('2/8 Choose platform');
+  const { platform, codegraph } = await choosePlatform(args);
+  log.info(`Target:  ${kleur.bold(platformLabel(platform))}`);
+  if (codegraph) log.info(`CodeGraph: ${kleur.green('enabled')}`);
+  else log.info('CodeGraph: disabled');
+
+  // 3. git init if needed
   if (!detected.hasGit) {
     if (args.yes || (await ask('Run `git init`?', true))) {
       gitInit(cwd);
@@ -33,8 +42,8 @@ export async function init(args) {
     }
   }
 
-  // 3. Overwrite gate
-  log.step('2/6 Confirm overwrites');
+  // 4. Overwrite gate
+  log.step('3/8 Confirm overwrites');
   const ok = await confirmOverwriteIfNeeded(detected, args);
   if (!ok) {
     log.warn('Aborted. Nothing written.');
@@ -42,8 +51,8 @@ export async function init(args) {
   }
   if (!detected.hasAgents && !detected.hasCopilotInstructions) log.dim('No collisions.');
 
-  // 4. Input mode — docs or manual interview
-  log.step('3/6 Project info');
+  // 5. Input mode — docs or manual interview
+  log.step('4/8 Project info');
   let docHints;
 
   if (args.docs.length > 0) {
@@ -64,7 +73,15 @@ export async function init(args) {
     if (docHints.oneLiner) log.dim(`  → description: ${docHints.oneLiner}`);
   }
 
-  // 5. Interview (pre-filled from docs if available, otherwise manual)
+  // 6. Model configuration
+  log.step('5/8 Model configuration');
+  const modelConfig = await chooseModels(platform, args);
+  log.info(`Provider: ${kleur.bold(modelConfig.provider)}`);
+  if (modelConfig.customized) log.info('Models:  customized');
+  else log.info('Models:  defaults');
+
+  // 7. Interview (pre-filled from docs if available, otherwise manual)
+  args.__platform = platform;
   const answers = await interview(detected, args, docHints);
 
   // CLI --cost-mode override
@@ -72,24 +89,31 @@ export async function init(args) {
     answers.costMode = args.costMode;
   }
 
+  // Attach platform/model choices to answers so scaffold can use them.
+  answers.platform = platform;
+  answers.codegraph = codegraph;
+  answers.provider = modelConfig.provider;
+  answers.modelMap = modelConfig.modelMap;
+  answers.customizedModels = modelConfig.customized;
+
   if (answers.presetId && answers.presetId !== 'custom') {
     log.info(`Preset: ${answers.presetId}`);
   }
   if (answers.frameworks.length) log.info(`Stack:  ${answers.stack.join(', ')} + ${answers.frameworks.join(', ')}`);
 
-  // 5. Scaffold
-  log.step('4/6 Scaffold');
+  // 8. Scaffold
+  log.step('6/8 Scaffold');
   const written = scaffold({ cwd, answers, args });
   if (args.dryRun) log.warn('--dry-run: no files written. Plan:');
   log.raw(summarize(written, cwd));
   if (!args.dryRun) log.ok(`Wrote ${written.length} files.`);
 
-  // 6. Skill discovery
-  log.step('5/6 Skill discovery');
+  // 9. Skill discovery
+  log.step('7/8 Skill discovery');
   await skillDiscovery({ cwd, answers, args });
 
-  // 7. Custom instructions
-  log.step('6/6 Custom instructions');
+  // 10. Custom instructions
+  log.step('8/8 Custom instructions');
   const instrWritten = await instructionGeneration({ cwd, answers, args });
   if (instrWritten && instrWritten.length > 0) {
     if (args.dryRun) log.warn('--dry-run: instruction plan:');
@@ -99,7 +123,7 @@ export async function init(args) {
     if (!args.dryRun) log.ok(`Wrote ${instrWritten.length} instruction file${instrWritten.length > 1 ? 's' : ''}.`);
   }
 
-  // 8. Next steps
+  // 11. Next steps
   printNextSteps(answers);
 }
 
@@ -110,15 +134,29 @@ async function ask(message, initial = false) {
 
 function printNextSteps(answers) {
   const hasDocs = answers.docFiles?.length > 0;
+  const platform = answers.platform || 'copilot';
+  const codegraph = answers.codegraph;
 
   log.raw('');
   log.raw(kleur.bold().green('Done. Next steps:'));
   log.raw('');
-  log.raw(`  1. Open this folder in VS Code Insiders.`);
-  log.raw(`  2. Enable Copilot subagent invocations (settings.json):`);
-  log.raw(kleur.gray(`        "chat.subagents.allowInvocationsFromSubagents": true`));
-  log.raw(`  3. Open Copilot Chat — select an agent from the dropdown (${kleur.bold('not')} @mention).`);
-  log.raw(`  4. Select ${kleur.bold('Orchestrator')} — it routes tasks autonomously to Planner, Coder, Designer, and Reviewer.`);
+
+  if (platform === 'opencode') {
+    log.raw(`  1. Install the CodeGraph CLI if you haven't:`);
+    log.raw(kleur.gray(`        npm i -g @colbymchenry/codegraph`));
+    log.raw(`  2. Index this project with CodeGraph:`);
+    log.raw(kleur.gray(`        codegraph init`));
+    log.raw(`  3. Run OpenCode from this directory:`);
+    log.raw(kleur.gray(`        opencode`));
+    log.raw(`  4. Select ${kleur.bold('Orchestrator')} and describe what you want built.`);
+  } else {
+    log.raw(`  1. Open this folder in VS Code Insiders.`);
+    log.raw(`  2. Enable Copilot subagent invocations (settings.json):`);
+    log.raw(kleur.gray(`        "chat.subagents.allowInvocationsFromSubagents": true`));
+    log.raw(`  3. Open Copilot Chat — select an agent from the dropdown (${kleur.bold('not')} @mention).`);
+    log.raw(`  4. Select ${kleur.bold('Orchestrator')} — it routes tasks autonomously to Planner, Coder, Designer, and Reviewer.`);
+  }
+
   log.raw(`  5. ${hasDocs ? 'Kickoff prompt (paste this into Orchestrator):' : 'Start building:'}`);
   if (hasDocs) {
     const docList = answers.docFiles.join(', ');
@@ -129,11 +167,22 @@ function printNextSteps(answers) {
   }
   log.raw(`  6. Review generated instruction files in .github/instructions/.`);
   log.raw(kleur.gray(`        Edit applyTo globs and guidelines to fit your project.`));
-  log.raw('');
-  log.raw(kleur.dim('  Quick plugin install (personal, no project config):'));
-  log.raw(kleur.dim('    copilot plugin install idusortus/cli-five'));
-  log.raw('');
-  log.raw(kleur.dim('Edit cost mode anytime by changing `model:` in .github/agents/*.agent.md.'));
+
+  if (codegraph) {
+    log.raw('');
+    log.raw(kleur.dim('  CodeGraph is configured. Remember to run `codegraph init` before asking agents to explore the codebase.'));
+  }
+
+  if (platform === 'copilot') {
+    log.raw('');
+    log.raw(kleur.dim('  Quick plugin install (personal, no project config):'));
+    log.raw(kleur.dim('    copilot plugin install idusortus/cli-five'));
+    log.raw('');
+    log.raw(kleur.dim('Edit cost mode anytime by changing `model:` in .github/agents/*.agent.md.'));
+  } else {
+    log.raw('');
+    log.raw(kleur.dim('Edit agent models anytime by changing `model:` in .opencode/agents/*.md.'));
+  }
   log.raw('');
 }
 

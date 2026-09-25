@@ -1,17 +1,26 @@
 ---
 name: Designer
 description: "Handles all UI/UX design tasks. Use when: creating screens, layouts, theming, navigation flows, design systems."
-model: Gemini 3.1 Pro (Preview) (copilot)
-tools: ['read', 'edit', 'search', 'web', 'io.github.upstash/context7/*', 'vscode/memory']
-agents: []
+mode: subagent
+model: opencode/gemini-3.1-pro
+permission:
+  read: allow
+  edit: allow
+  write: allow
+  glob: allow
+  grep: allow
+  list: allow
+  webfetch: allow
+  websearch: allow
+  skill: allow
 ---
 
 ## Model Selection
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Gemini 3.1 Pro (Preview) (copilot) | 1x |
-| **Cheap** | GPT-4o | 0x (free) |
+| **Default** | Gemini 3.1 Pro | 1x |
+| **Cheap** | GPT 5.6 Luna | 0x |
 
 To switch: change the `model` key in frontmatter above.
 
@@ -31,9 +40,9 @@ Do not reference "the layout above" — re-state inline.
 Before design work, read (if they exist):
 - `decisions.md` — prior team decisions
 - `histories/designer.md` — your accumulated learnings
-- `.github/copilot-instructions.md` or `AGENTS.md` — project mandates
+- `AGENTS.md` — project mandates
 - All `.github/instructions/*.instructions.md` matching UI file types
-- All relevant `.github/skills/*/SKILL.md` or `skills/*/SKILL.md`
+- All relevant `.opencode/skills/*/SKILL.md` or `.github/skills/*/SKILL.md`
 
 ## Identity
 

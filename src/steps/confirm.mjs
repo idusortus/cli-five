@@ -34,5 +34,7 @@ function collideList(detected) {
   const out = [];
   if (detected.hasAgents) out.push('.github/agents/');
   if (detected.hasCopilotInstructions) out.push('.github/copilot-instructions.md');
+  if (detected.hasOpencodeAgents) out.push('.opencode/agents/');
+  if (detected.hasOpencodeConfig) out.push('opencode.json');
   return out;
 }

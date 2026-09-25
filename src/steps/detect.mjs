@@ -29,6 +29,8 @@ export function detect(cwd) {
   const hasGithub = names.has('.github');
   const hasAgents = existsSync(join(cwd, '.github', 'agents'));
   const hasCopilotInstructions = existsSync(join(cwd, '.github', 'copilot-instructions.md'));
+  const hasOpencodeAgents = existsSync(join(cwd, '.opencode', 'agents'));
+  const hasOpencodeConfig = existsSync(join(cwd, 'opencode.json'));
   const projectName = guessName(cwd, names);
 
   return {
@@ -38,6 +40,8 @@ export function detect(cwd) {
     hasGithub,
     hasAgents,
     hasCopilotInstructions,
+    hasOpencodeAgents,
+    hasOpencodeConfig,
     isBrownfield: stacks.length > 0,
     stacks,
   };

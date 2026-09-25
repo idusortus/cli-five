@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import YAML from 'yaml';
 
 export const AGENT_FILES = [
   'orchestrator.agent.md',
@@ -6,6 +7,14 @@ export const AGENT_FILES = [
   'coder.agent.md',
   'designer.agent.md',
   'reviewer.agent.md',
+];
+
+export const OPENCODE_AGENT_FILES = [
+  'orchestrator.md',
+  'planner.md',
+  'coder.md',
+  'designer.md',
+  'reviewer.md',
 ];
 
 export const EXPECTED_AGENT_NAMES = {
@@ -89,6 +98,44 @@ export function validateAgentSource(source, fileName, { requiredMarkers = [] } =
   return errors;
 }
 
+export function validateOpenCodeAgentSource(source, fileName) {
+  const errors = [];
+  const { frontmatter, body } = parseAgentSource(source);
+
+  if (!frontmatter) {
+    return ['missing YAML frontmatter'];
+  }
+
+  for (const key of ['description', 'mode', 'model']) {
+    if (!(key in frontmatter)) {
+      errors.push(`missing frontmatter key: ${key}`);
+    }
+  }
+
+  const mode = String(frontmatter.mode || '').toLowerCase();
+  if (mode && !['primary', 'subagent', 'all'].includes(mode)) {
+    errors.push(`invalid mode: ${frontmatter.mode}`);
+  }
+
+  const expectedMode = fileName === 'orchestrator.md' ? 'primary' : 'subagent';
+  if (mode && mode !== expectedMode && mode !== 'all') {
+    errors.push(`expected mode ${expectedMode}, found ${frontmatter.mode}`);
+  }
+
+  if (fileName === 'orchestrator.md') {
+    const task = frontmatter.permission?.task || frontmatter.permissions?.task;
+    if (!task) {
+      errors.push('orchestrator must declare permission.task for subagents');
+    }
+  }
+
+  if (!body.trim()) {
+    errors.push('agent body must not be empty');
+  }
+
+  return errors;
+}
+
 function requiredFrontmatterKeys(fileName) {
   return fileName === 'orchestrator.agent.md'
     ? ['name', 'description', 'model', 'tools', 'agents']
@@ -96,16 +143,21 @@ function requiredFrontmatterKeys(fileName) {
 }
 
 function parseFrontmatter(block) {
-  const out = {};
-  for (const rawLine of block.split('\n')) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const match = /^([A-Za-z-]+):\s*(.+)$/.exec(line);
-    if (!match) continue;
-    const [, key, rawValue] = match;
-    out[key] = parseFrontmatterValue(rawValue.trim());
+  try {
+    return YAML.parse(block, { strict: false });
+  } catch {
+    // Fall back to the legacy line parser for simple Copilot frontmatter.
+    const out = {};
+    for (const rawLine of block.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const match = /^([A-Za-z-]+):\s*(.+)$/.exec(line);
+      if (!match) continue;
+      const [, key, rawValue] = match;
+      out[key] = parseFrontmatterValue(rawValue.trim());
+    }
+    return out;
   }
-  return out;
 }
 
 function parseFrontmatterValue(rawValue) {

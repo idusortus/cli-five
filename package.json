@@ -1,7 +1,7 @@
 {
   "name": "cli-five",
   "version": "0.2.13",
-  "description": "Code Like I'm Five — scaffold a 5-agent VS Code Copilot team into any repo.",
+  "description": "Code Like I'm Five — scaffold a 5-agent AI team (GitHub Copilot or OpenCode) into any repo.",
   "type": "module",
   "bin": {
     "cli-five": "bin/cli-five.mjs"
@@ -24,6 +24,8 @@
   },
   "keywords": [
     "copilot",
+    "opencode",
+    "codegraph",
     "vscode",
     "agents",
     "scaffold",
@@ -33,6 +35,7 @@
   "dependencies": {
     "kleur": "^4.1.5",
     "prompts": "^2.4.2",
-    "skills": "^1.5.0"
+    "skills": "^1.5.0",
+    "yaml": "^2.8.3"
   }
 }
