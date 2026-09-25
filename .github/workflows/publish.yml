@@ -55,9 +55,14 @@ jobs:
           echo "Will publish version: $LOCAL_VERSION"
 
       - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # npm Trusted Publishing (OIDC). actions/setup-node writes an
+        # `_authToken` line into the user .npmrc; remove it so npm does not
+        # fall back to a stale token and instead exchanges the OIDC token.
+        run: |
+          if [ -n "${NPM_CONFIG_USERCONFIG:-}" ] && [ -f "$NPM_CONFIG_USERCONFIG" ]; then
+            sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
+          fi
+          npm publish --access public
 
       - name: Commit and push version bump
         run: |
