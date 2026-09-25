@@ -1,0 +1,29 @@
+name: npm token check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Identify token (never prints the token)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "== npm version =="
+          npm --version
+          echo "== whoami =="
+          npm whoami || echo "WHOAMI_FAILED"
+          echo "== owner list cli-five =="
+          npm owner ls cli-five || echo "OWNER_LIST_FAILED"
+          echo "== view publish access =="
+          npm view cli-five dist-tags version || echo "VIEW_FAILED"
