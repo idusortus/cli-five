@@ -1,6 +1,6 @@
 {
   "name": "cli-five",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "Code Like I'm Five — scaffold a 5-agent AI team (GitHub Copilot or OpenCode) into any repo.",
   "type": "module",
   "repository": {
