@@ -9,6 +9,7 @@ import {
   platformLabel,
 } from '../util/platforms.mjs';
 import { log } from '../util/log.mjs';
+import { detectAuthenticatedProviders, preferredProviderForAuth } from '../util/auth.mjs';
 import {
   agentNames,
   getDefaultModelMap,
@@ -118,9 +119,16 @@ export function detectExistingPlatform(cwd) {
  * override per-agent models.
  */
 export async function chooseModels(platform, args) {
-  // Defaults for the platform.
-  const defaultProvider = providerForPlatform(platform, args.provider);
+  // Defaults for the platform, refined by what the user is actually authed for.
+  const authedProvider = platform === PLATFORM_OPENCODE && !args.provider
+    ? preferredProviderForAuth(platform)
+    : null;
+  const defaultProvider = providerForPlatform(platform, args.provider || authedProvider);
   const defaults = getDefaultModelMap(defaultProvider);
+
+  if (authedProvider && authedProvider !== PROVIDER_ZEN) {
+    log.dim(`Detected authenticated OpenCode provider: ${providerLabel(authedProvider)} (using it instead of the ${providerLabel(PROVIDER_ZEN)} default).`);
+  }
 
   if (args.yes) {
     return {
@@ -206,23 +214,27 @@ async function chooseProvider(platform, cliProvider) {
     return PROVIDER_COPILOT;
   }
 
+  const authed = detectAuthenticatedProviders();
+  const isAuthed = (p) => authed.includes(p);
+  const annotate = (p, label, description) => ({
+    title: isAuthed(p) ? `${label} ${kleur.green('(authenticated)')}` : label,
+    value: p,
+    description,
+  });
+
+  const choices = [
+    annotate(PROVIDER_ZEN, providerLabel(PROVIDER_ZEN), 'Curated, tested models via OpenCode Zen'),
+    annotate(PROVIDER_GO, 'OpenCode Go', 'Low-cost open-coding model subscription'),
+  ];
+  // Put an authenticated provider first so the default is one that works.
+  const initial = Math.max(0, choices.findIndex((c) => isAuthed(c.value)));
+
   const { provider } = await prompts({
     type: 'select',
     name: 'provider',
     message: 'OpenCode model provider',
-    choices: [
-      {
-        title: providerLabel(PROVIDER_ZEN),
-        value: PROVIDER_ZEN,
-        description: 'Curated, tested models via OpenCode Zen',
-      },
-      {
-        title: 'OpenCode Go',
-        value: 'opencode-go',
-        description: 'Low-cost open-coding model subscription',
-      },
-    ],
-    initial: 0,
+    choices,
+    initial,
   });
 
   if (!provider) {

@@ -13,6 +13,7 @@ import { choosePlatform, chooseModels, resolveCodegraphDefault } from '../steps/
 import { isGitRepo, gitInit } from '../util/git.mjs';
 import { platformLabel } from '../util/platforms.mjs';
 import { autoProjectInfo } from '../util/project.mjs';
+import { detectAuthenticatedProviders } from '../util/auth.mjs';
 
 export async function init(args) {
   const cwd = args.cwd;
@@ -100,7 +101,7 @@ export async function init(args) {
   } else {
     log.step('4/8 Project info');
     docHints = autoProjectInfo(cwd);
-    logAutoProjectInfo(docHints);
+    logAutoProjectInfo(docHints, { yes: args.yes });
 
     log.step('5/8 Model configuration');
     // Minimal path uses provider defaults without prompting (still honours --provider).
@@ -169,20 +170,30 @@ export async function init(args) {
 }
 
 /** Log which project fields were auto-pulled from the workspace. */
-function logAutoProjectInfo(info) {
+function logAutoProjectInfo(info, { yes = false } = {}) {
   const name = info?.name || {};
   const oneLiner = info?.oneLiner || {};
 
   if (name.value && !name.ambiguous) {
     log.info(`Name:    ${kleur.bold(name.value)} ${kleur.gray(`(${name.sources[0].source})`)}`);
   } else if (name.ambiguous) {
-    log.warn(`Multiple project names found (${name.sources.map((s) => s.source).join(', ')}) — asking.`);
+    const picks = name.sources.map((s) => `${s.source}="${s.value}"`).join(', ');
+    if (yes) {
+      log.warn(`Multiple project names found (${picks}); --yes picked "${name.value}".`);
+    } else {
+      log.warn(`Multiple project names found (${picks}) — asking.`);
+    }
   }
 
   if (oneLiner.value && !oneLiner.ambiguous) {
     log.info(`Tagline: ${oneLiner.value} ${kleur.gray(`(${oneLiner.sources[0].source})`)}`);
   } else if (oneLiner.ambiguous) {
-    log.warn(`Multiple descriptions found (${oneLiner.sources.map((s) => s.source).join(', ')}) — asking.`);
+    const picks = oneLiner.sources.map((s) => `${s.source}="${s.value}"`).join(', ');
+    if (yes) {
+      log.warn(`Multiple descriptions found (${picks}); --yes picked ${oneLiner.sources[0].source}.`);
+    } else {
+      log.warn(`Multiple descriptions found (${picks}) — asking.`);
+    }
   }
 }
 
@@ -208,6 +219,19 @@ function printNextSteps(answers, { generatedInstructions = false } = {}) {
     log.raw(`  3. Run OpenCode from this directory:`);
     log.raw(kleur.gray(`        opencode`));
     log.raw(`  4. Select ${kleur.bold('Orchestrator')} and describe what you want built.`);
+
+    // A provider the user is not authenticated for produces agent files whose
+    // models silently fail. Surface that here rather than at first agent use.
+    const authed = detectAuthenticatedProviders();
+    const provider = answers.provider;
+    if (authed.length > 0 && !authed.includes(provider)) {
+      log.raw('');
+      log.warn(`Models use "${provider}", but you are authenticated for: ${authed.join(', ')}.`);
+      log.dim(`  Authenticate with \`opencode auth login\`, or re-run with --provider ${authed[0]}.`);
+    } else if (authed.length === 0) {
+      log.raw('');
+      log.dim(`  Make sure you are authenticated (\`opencode auth login\`) for provider "${provider}".`);
+    }
   } else {
     log.raw(`  1. Open this folder in VS Code Insiders.`);
     log.raw(`  2. Enable Copilot subagent invocations (settings.json):`);
