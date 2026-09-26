@@ -54,6 +54,19 @@ jobs:
           done
           echo "Will publish version: $LOCAL_VERSION"
 
+      - name: Diagnose OIDC (no secrets printed)
+        run: |
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL present: $([ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && echo yes || echo no)"
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            RESP=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+              -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=npm:registry.npmjs.org")
+            STATUS=$(printf '%s' "$RESP" | sed -n 's/.*HTTP_STATUS://p')
+            HAS_VALUE=$(printf '%s' "$RESP" | grep -c '"value"' || true)
+            echo "GitHub OIDC HTTP status: ${STATUS}; value present: ${HAS_VALUE}"
+          fi
+          echo "npmrc keys:"; grep -oE '^[^=]+' "${NPM_CONFIG_USERCONFIG:-/dev/null}" 2>/dev/null || true
+
       - name: Publish to npm
         # npm Trusted Publishing (OIDC). actions/setup-node writes an
         # `_authToken` line into the user .npmrc; remove it so npm does not
