@@ -225,11 +225,13 @@ During `init --full-interview` you can choose the model provider and optionally 
 |---|---|---|
 | GitHub Copilot | Copilot | `Claude Sonnet 4.6 (copilot)` |
 | OpenCode Zen | OpenCode | `opencode/gpt-5.3-codex` |
-| OpenCode Go | OpenCode | `opencode-go/qwen3.8-max` |
+| OpenCode Go | OpenCode | `opencode-go/deepseek-v4.1-flash` |
 
 **On OpenCode, the default provider is auth-aware.** cli-five checks which provider you are actually authenticated for (`opencode auth list`) and uses it instead of blindly defaulting to OpenCode Zen. If you are authenticated for Go only, `init --target opencode` writes Go models automatically — no `--provider` flag needed. If nothing is detected, or the selected provider does not match your auth, `init` prints a warning telling you how to fix it, so you do not end up with agent files whose models silently fail.
 
 `--yes` uses the provider's defaults. `--provider opencode-go --yes` skips the provider prompt.
+
+**OpenCode Go defaults:** all five agents use `opencode-go/deepseek-v4.1-flash`, except the Planner, which uses `opencode-go/kimi-k2.7-code`.
 
 ### Copilot cost modes
 

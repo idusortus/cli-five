@@ -35,8 +35,8 @@ You create plans. You do NOT write code.
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Claude Opus 4.6 | 3x |
-| **Cheap** | Qwen 3.8 Flash | 0x |
+| **Default** (OpenCode Go) | Kimi K2.7 Code | 0x |
+| **Alternative** (OpenCode Zen) | Claude Opus 4.6 | 3x |
 
 To switch: change the `model` key in frontmatter above.
 

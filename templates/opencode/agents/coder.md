@@ -43,8 +43,8 @@ permissions:
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | GPT 5.3 Codex | 1x |
-| **Cheap** | Qwen 3.8 Max | 0x |
+| **Default** (OpenCode Go) | DeepSeek V4.1 Flash | 0x |
+| **Alternative** (OpenCode Zen) | GPT 5.3 Codex | 1x |
 
 To switch: change the `model` key in frontmatter above.
 

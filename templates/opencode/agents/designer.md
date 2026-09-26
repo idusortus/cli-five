@@ -37,8 +37,8 @@ permissions:
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Gemini 3.1 Pro | 1x |
-| **Cheap** | GPT 5.6 Luna | 0x |
+| **Default** (OpenCode Go) | DeepSeek V4.1 Flash | 0x |
+| **Alternative** (OpenCode Zen) | Gemini 3.1 Pro | 1x |
 
 To switch: change the `model` key in frontmatter above.
 

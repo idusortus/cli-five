@@ -31,8 +31,8 @@ permissions:
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Claude Sonnet 4.6 | 1x |
-| **Cheap** | Qwen 3.8 Flash | 0x |
+| **Default** (OpenCode Go) | DeepSeek V4.1 Flash | 0x |
+| **Alternative** (OpenCode Zen) | Claude Sonnet 4.6 | 1x |
 
 To switch: change the `model` key in frontmatter above.
 

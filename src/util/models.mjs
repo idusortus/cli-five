@@ -31,11 +31,11 @@ export const DEFAULT_MODEL_MAP = {
     Reviewer: 'opencode/claude-sonnet-4-6',
   },
   [PROVIDER_GO]: {
-    Orchestrator: 'opencode-go/qwen3.8-max',
-    Planner: 'opencode-go/deepseek-v4-pro',
-    Coder: 'opencode-go/qwen3.8-max',
-    Designer: 'opencode-go/gpt-5.6-luna',
-    Reviewer: 'opencode-go/kimi-k2.7-code',
+    Orchestrator: 'opencode-go/deepseek-v4.1-flash',
+    Planner: 'opencode-go/kimi-k2.7-code',
+    Coder: 'opencode-go/deepseek-v4.1-flash',
+    Designer: 'opencode-go/deepseek-v4.1-flash',
+    Reviewer: 'opencode-go/deepseek-v4.1-flash',
   },
 };
 
