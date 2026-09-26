@@ -3,6 +3,7 @@ import { log } from '../util/log.mjs';
 import { readTemplate, render, writeFile, listFilesRecursive, relTo, templatePath } from '../util/fs.mjs';
 import { readFileSync } from 'node:fs';
 import { PLATFORM_COPILOT, PLATFORM_OPENCODE, agentDirFor, agentFileFor } from '../util/platforms.mjs';
+import { addCodegraphTo } from '../addons/codegraph.mjs';
 
 const AGENT_NAMES = ['orchestrator', 'planner', 'coder', 'designer', 'reviewer'];
 const HISTORY_FILES = ['orchestrator.md', 'planner.md', 'coder.md', 'designer.md', 'reviewer.md'];
@@ -44,6 +45,9 @@ export function scaffold({ cwd, answers, args }) {
   }
 
   // Shared memory primitives
+  // NOTE: AGENTS.md is written WITHOUT the CodeGraph block here. When CodeGraph
+  // is enabled, the block is merged in afterward by addCodegraphTo() — the same
+  // code path `add codegraph` uses (one implementation, two entry points).
   for (const tmpl of [
     'AGENTS.md.tmpl',
     'PROJECT.md.tmpl',
@@ -59,6 +63,13 @@ export function scaffold({ cwd, answers, args }) {
   // Per-agent histories
   for (const file of HISTORY_FILES) {
     written.push(writeFile(join(cwd, 'histories', file), readTemplate('histories', file), args));
+  }
+
+  // CodeGraph — delegated to the shared add codegraph implementation.
+  if (answers.codegraph) {
+    for (const t of addCodegraphTo({ cwd, platform, dryRun: args.dryRun })) {
+      written.push({ path: t.path, written: !args.dryRun && t.action !== 'unchanged' });
+    }
   }
 
   return written;
@@ -92,11 +103,6 @@ function scaffoldCopilot({ cwd, answers, args, vars }) {
   written.push(
     writeFile(join(cwd, '.github', 'skills', 'README.md'), readTemplate('.github', 'skills', 'README.md'), args),
   );
-
-  // CodeGraph MCP for VS Code Copilot
-  if (answers.codegraph) {
-    written.push(writeFile(join(cwd, '.vscode', 'mcp.json'), JSON.stringify(codegraphMcpJson(), null, 2), args));
-  }
 
   return written;
 }
@@ -144,34 +150,10 @@ function buildOpencodeConfig({ answers, orchestratorModel }) {
     subagent_depth: 2,
   };
 
-  if (answers.codegraph) {
-    config.mcp = {
-      codegraph: {
-        type: 'local',
-        command: ['codegraph', 'serve', '--mcp'],
-        enabled: true,
-      },
-    };
-  }
-
   return config;
 }
 
-function codegraphMcpJson() {
-  return {
-    inputs: [],
-    servers: {
-      codegraph: {
-        command: 'codegraph',
-        args: ['serve', '--mcp'],
-      },
-    },
-  };
-}
-
 function buildVars(a) {
-  const codegraphBlock = a.codegraph ? CODEGRAPH_BLOCK : '';
-
   return {
     PROJECT_NAME: a.projectName,
     ONE_LINER: a.oneLiner || 'TODO — write a one-line vision statement.',
@@ -190,7 +172,6 @@ ${a.docs}
 ` : '',
     DATE: new Date().toISOString().slice(0, 10),
     PERSONA_BLOCK: a.snark ? PERSONA_BLOCK : '',
-    CODEGRAPH_BLOCK: codegraphBlock,
   };
 }
 
@@ -219,22 +200,6 @@ const PERSONA_BLOCK = `# Persona
 - Be critical. Call out bad practices and tech debt.
 - Snarky, dry humor. Keep it real and keep it moving.
 
-`;
-
-const CODEGRAPH_BLOCK = `
-<!-- CODEGRAPH_START -->
-## CodeGraph
-
-This project is configured to use [CodeGraph](https://codegraph.ru) for graph-backed codebase context.
-When you need to understand relationships, call paths, or impacts, use:
-
-\`\`\`
-codegraph explore "<your question>"
-\`\`\`
-
-The CodeGraph MCP server is registered in the project config. Run \`codegraph init\` in this directory
-if the project has not been indexed yet.
-<!-- CODEGRAPH_END -->
 `;
 
 export function summarize(written, cwd) {

@@ -1,5 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { runJev, JEVR_STATUS, TEST_GATE_ISSUE } from './jev.mjs';
+import { runCodegraph } from './codegraph-command.mjs';
+import { CODEGRAPH_STATUS } from './codegraph.mjs';
 
 /**
  * Add-on registry for `cli-five add <name>`.
@@ -16,19 +19,27 @@ export const ADDONS = {
     name: 'codegraph',
     label: 'CodeGraph',
     description: 'Graph-backed codebase context MCP server and agent instructions.',
-    available: false,
-    note: 'Currently installed by init (on by default). `add` migration is a future commit.',
+    // Matches jev's status-object pattern: explicit capability + status string,
+    // not a bare boolean.
+    available: true,
+    capability: 'MCP registration + AGENTS.md instructions',
+    status: CODEGRAPH_STATUS,
+    platforms: ['copilot', 'opencode'],
     detect: detectCodeGraph,
-    run: null,
+    run: runCodegraph,
   },
   jev: {
     name: 'jev',
     label: 'Jev',
-    description: 'Optional Jev integration (purpose to be defined in a future commit).',
-    available: false,
-    note: 'Reserved target. No integration wired in this release.',
-    detect: () => [],
-    run: null,
+    description: 'Tier-routing tool for the Planner (local heuristic; test-gate parked).',
+    // Not a bare boolean: jev ships tier-routing ONLY. The test-gate half is
+    // parked because OpenCode plugin hooks don't fire under OpenChamber routing.
+    available: true,
+    capability: 'tier-routing only',
+    status: `${JEVR_STATUS}; test-gate parked — ${TEST_GATE_ISSUE}`,
+    platforms: ['opencode'],
+    detect: detectJev,
+    run: runJev,
   },
 };
 
@@ -93,4 +104,23 @@ function readJson(filePath) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Detect the jev tier-router plugin: its directory on disk and/or its entry in
+ * opencode.json's `plugins` array. Read-only.
+ */
+export function detectJev(cwd) {
+  const signals = [];
+
+  if (existsSync(join(cwd, '.opencode', 'plugin', 'jev-tier-router', 'index.js'))) {
+    signals.push('.opencode/plugin/jev-tier-router');
+  }
+
+  const cfg = readJson(join(cwd, 'opencode.json'));
+  if (Array.isArray(cfg?.plugins) && cfg.plugins.some((p) => String(p).includes('jev-tier-router'))) {
+    signals.push('opencode.json plugins[]');
+  }
+
+  return signals;
 }

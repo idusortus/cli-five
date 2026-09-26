@@ -28,7 +28,7 @@ export async function add(args) {
   if (typeof addon.run !== 'function') {
     log.warn(`${addon.label} is registered but not implemented yet.`);
     log.info('The add dispatcher works — this target is reserved for a future release.');
-    if (addon.note) log.dim(addon.note);
+    if (addon.note || addon.status) log.dim(addon.note || addon.status);
     log.dim('Nothing was written to your project.');
     return;
   }

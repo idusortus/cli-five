@@ -156,13 +156,51 @@ Optional integrations live outside the default scaffold and are installed with `
 
 ```bash
 npx cli-five add            # list known targets
-npx cli-five add codegraph  # stub in this release
+npx cli-five add codegraph  # CodeGraph MCP registration + AGENTS.md instructions
+npx cli-five add jev        # tier-routing tool for the Planner (OpenCode only)
 npx cli-five list-addons    # installed vs. available status
 ```
 
-This release ships the **dispatcher and merge utility** only — no integration is wired in yet. Jev and the CodeGraph migration are future commits.
+Add-ons use `mergeBlock(file, markerFence, content)` to layer a fenced block into an existing JSON or Markdown file without touching the rest of it (distinct from init's blunt overwrite gate). Markdown gets `<!-- NAME_START -->` / `<!-- NAME_END -->` fences; JSON is deep-merged with existing keys preserved. Re-running an add-on is idempotent — no duplicate MCP entries or AGENTS.md sections.
 
-Add-ons use `mergeBlock(file, markerFence, content)` to layer a fenced block into an existing JSON or Markdown file without touching the rest of it (distinct from init's blunt overwrite gate). Markdown gets `<!-- NAME_START -->` / `<!-- NAME_END -->` fences; JSON is deep-merged with existing keys preserved.
+### CodeGraph (`add codegraph`)
+
+`add codegraph` registers the CodeGraph MCP server and adds the CodeGraph section to `AGENTS.md`. It works on **both platforms**:
+
+| Target | MCP registration | Instructions |
+|---|---|---|
+| Copilot | `.vscode/mcp.json` → `servers.codegraph` | `AGENTS.md` block |
+| OpenCode | `opencode.json` → `mcp.codegraph` | `AGENTS.md` block |
+
+**The `init` flags are now thin wrappers.** `init --codegraph` and `init --no-codegraph` still behave exactly as before, but they call the *same* underlying `add codegraph` logic — one implementation, two entry points. CodeGraph remains off by default in minimal `init` and on with `--full-interview`; pass `--codegraph` to force it on, `--no-codegraph` to force it off.
+
+cli-five still does **not** run `codegraph init` itself — it only registers the server and reminds you to index the project:
+
+```bash
+npm i -g @colbymchenry/codegraph
+codegraph init
+```
+
+### Jev (`add jev`) — tier-routing only, OpenCode only
+
+`add jev` scaffolds an OpenCode plugin that adds a `local_tier_heuristic` tool. The Planner calls it once per task to classify the work as `trivial` / `minor` / `major`, then scales planning depth accordingly.
+
+**Two things it deliberately does *not* do, stated plainly:**
+
+1. **It does not call Jev.** `jev-harness` 0.2.0's `route` subcommand exposes no custom-criteria interface — it emits its own fixed tier vocabulary (`deterministic` / `lightweight_system2` / `heavy_system2`) and returns a constant confidence (`0.88`) under its offline/mock engine, so it cannot be thresholded on. The shipped tool is therefore a **local heuristic**, truthfully named `local_tier_heuristic`. The swap point for real Jev wiring is marked in `templates/opencode/plugin/jev-tier-router/index.js` (`JEVR_SWAP_POINT`).
+2. **The test-gate is parked.** Gating Reviewer spawns via plugin interception (`tool.execute.before` / `permission.ask`) does not work: OpenCode plugin hooks do not fire under OpenChamber's embedded-server routing. Do not expect `add jev` to gate anything.
+
+`list-addons` reports each add-on's honest capability rather than a bare "installed":
+
+```
+codegraph   installed (MCP registration + AGENTS.md instructions)   available   MCP registration + AGENTS.md instructions
+jev         installed (tier-routing only)                           available   local heuristic — …; test-gate parked — <issue link>
+```
+
+**Fail-open is non-negotiable.** If the classifier is unavailable, errors, or returns malformed output, the tool returns `available: false` with tier `major` (the expensive tier) and never throws. The Planner falls back to its own judgment. cli-five and the scaffolded agents behave identically whether the plugin works, is missing, or is broken.
+
+**Copilot has no equivalent.** `add jev` refuses cleanly on a Copilot target (exit 1, no files written) — there is no `tools.add`-style surface there.
+
 
 ## Model providers
 
