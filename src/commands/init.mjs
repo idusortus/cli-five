@@ -5,17 +5,29 @@ import { resolve, basename, join, extname } from 'node:path';
 import { log } from '../util/log.mjs';
 import { detect } from '../steps/detect.mjs';
 import { confirmOverwriteIfNeeded } from '../steps/confirm.mjs';
-import { interview } from '../steps/interview.mjs';
+import { interview, minimalInterview } from '../steps/interview.mjs';
 import { scaffold, summarize } from '../steps/scaffold.mjs';
 import { skillDiscovery } from '../steps/skills.mjs';
 import { instructionGeneration } from '../steps/instructions.mjs';
-import { choosePlatform, chooseModels } from '../steps/platform.mjs';
+import { choosePlatform, chooseModels, resolveCodegraphDefault } from '../steps/platform.mjs';
 import { isGitRepo, gitInit } from '../util/git.mjs';
 import { platformLabel } from '../util/platforms.mjs';
+import { autoProjectInfo } from '../util/project.mjs';
 
 export async function init(args) {
   const cwd = args.cwd;
   log.raw(kleur.bold().magenta('\ncli-five init') + kleur.gray(`  ${cwd}`));
+
+  // ── Mode ───────────────────────────────────────────────────────────
+  // Default init is minimal: the 5 agents + required tooling, asking only for
+  // platform and (when needed) name/one-liner. The legacy interview — docs,
+  // goals/constraints/persona, model customization, skills, instructions — is
+  // opt-in via --full-interview (or --doc). Per-feature flags can also force
+  // skills/instructions/persona without the whole interview.
+  const docs = Array.isArray(args.docs) ? args.docs : [];
+  const fullInterview = Boolean(args.fullInterview) || docs.length > 0;
+  const runSkills = args.skills !== null ? Boolean(args.skills) : fullInterview;
+  const runInstructions = args.instructions !== null ? Boolean(args.instructions) : fullInterview;
 
   // 1. Detect
   log.step('1/8 Detect workspace');
@@ -27,10 +39,17 @@ export async function init(args) {
 
   // 2. Platform + CodeGraph
   log.step('2/8 Choose platform');
-  const { platform, codegraph } = await choosePlatform(args);
+  const codegraphDefault = resolveCodegraphDefault(args, fullInterview);
+  const { platform, codegraph } = await choosePlatform(args, {
+    autoDetect: !fullInterview,
+    askCodegraph: fullInterview && args.codegraph === null,
+    codegraphDefault,
+  });
   log.info(`Target:  ${kleur.bold(platformLabel(platform))}`);
   if (codegraph) log.info(`CodeGraph: ${kleur.green('enabled')}`);
-  else log.info('CodeGraph: disabled');
+  else if (fullInterview || args.codegraph === false) log.info('CodeGraph: disabled');
+  else log.info(`CodeGraph: ${kleur.gray('disabled')} ${kleur.dim('(enable with --codegraph or --full-interview)')}`);
+  if (!fullInterview) log.dim('Minimal init. Full interview: npx cli-five init --full-interview');
 
   // 3. git init if needed
   if (!detected.hasGit) {
@@ -51,43 +70,57 @@ export async function init(args) {
   }
   if (!detected.hasAgents && !detected.hasCopilotInstructions) log.dim('No collisions.');
 
-  // 5. Input mode — docs or manual interview
-  log.step('4/8 Project info');
+  // 5. Project info + model configuration
+  args.__platform = platform;
   let docHints;
+  let modelConfig;
 
-  if (args.docs.length > 0) {
-    // --doc was passed on the CLI — validate with retry
-    docHints = loadDocs(args.docs, cwd);
-    if (docHints.files.length === 0) {
-      log.warn('None of the --doc files could be loaded.');
+  if (fullInterview) {
+    log.step('4/8 Project info');
+    if (docs.length > 0) {
+      // --doc was passed on the CLI — validate with retry
+      docHints = loadDocs(docs, cwd);
+      if (docHints.files.length === 0) {
+        log.warn('None of the --doc files could be loaded.');
+      }
+    } else if (args.yes) {
+      docHints = loadDocs([], cwd);
+    } else {
+      docHints = await collectDocFiles(cwd);
     }
-  } else if (args.yes) {
-    docHints = loadDocs([], cwd);
+
+    if (docHints.files.length > 0 && docs.length > 0) {
+      log.info(`Loaded ${docHints.files.length} doc${docHints.files.length > 1 ? 's' : ''}: ${docHints.files.join(', ')}`);
+      if (docHints.projectName) log.dim(`  → project name: ${docHints.projectName}`);
+      if (docHints.oneLiner) log.dim(`  → description: ${docHints.oneLiner}`);
+    }
+
+    log.step('5/8 Model configuration');
+    modelConfig = await chooseModels(platform, args);
   } else {
-    docHints = await collectDocFiles(cwd);
+    log.step('4/8 Project info');
+    docHints = autoProjectInfo(cwd);
+    logAutoProjectInfo(docHints);
+
+    log.step('5/8 Model configuration');
+    // Minimal path uses provider defaults without prompting (still honours --provider).
+    modelConfig = await chooseModels(platform, { ...args, yes: true });
   }
 
-  if (docHints.files.length > 0 && args.docs.length > 0) {
-    log.info(`Loaded ${docHints.files.length} doc${docHints.files.length > 1 ? 's' : ''}: ${docHints.files.join(', ')}`);
-    if (docHints.projectName) log.dim(`  → project name: ${docHints.projectName}`);
-    if (docHints.oneLiner) log.dim(`  → description: ${docHints.oneLiner}`);
-  }
-
-  // 6. Model configuration
-  log.step('5/8 Model configuration');
-  const modelConfig = await chooseModels(platform, args);
   log.info(`Provider: ${kleur.bold(modelConfig.provider)}`);
   if (modelConfig.customized) log.info('Models:  customized');
   else log.info('Models:  defaults');
 
-  // 7. Interview (pre-filled from docs if available, otherwise manual)
-  args.__platform = platform;
-  const answers = await interview(detected, args, docHints);
+  // 6. Interview (minimal by default, full behind --full-interview)
+  const answers = fullInterview
+    ? await interview(detected, args, docHints)
+    : await minimalInterview(detected, args, docHints);
 
-  // CLI --cost-mode override
+  // CLI overrides — apply to both paths.
   if (args.costMode && ['premium', 'cheap', 'mixed'].includes(args.costMode)) {
     answers.costMode = args.costMode;
   }
+  if (args.persona !== null) answers.snark = Boolean(args.persona);
 
   // Attach platform/model choices to answers so scaffold can use them.
   answers.platform = platform;
@@ -101,30 +134,56 @@ export async function init(args) {
   }
   if (answers.frameworks.length) log.info(`Stack:  ${answers.stack.join(', ')} + ${answers.frameworks.join(', ')}`);
 
-  // 8. Scaffold
+  // 7. Scaffold
   log.step('6/8 Scaffold');
   const written = scaffold({ cwd, answers, args });
   if (args.dryRun) log.warn('--dry-run: no files written. Plan:');
   log.raw(summarize(written, cwd));
   if (!args.dryRun) log.ok(`Wrote ${written.length} files.`);
 
-  // 9. Skill discovery
+  // 8. Skill discovery
   log.step('7/8 Skill discovery');
-  await skillDiscovery({ cwd, answers, args });
-
-  // 10. Custom instructions
-  log.step('8/8 Custom instructions');
-  const instrWritten = await instructionGeneration({ cwd, answers, args });
-  if (instrWritten && instrWritten.length > 0) {
-    if (args.dryRun) log.warn('--dry-run: instruction plan:');
-    for (const w of instrWritten) {
-      log.raw(`  ${w.written ? '+' : '~'} ${w.path.replace(cwd + '/', '')}`);
-    }
-    if (!args.dryRun) log.ok(`Wrote ${instrWritten.length} instruction file${instrWritten.length > 1 ? 's' : ''}.`);
+  if (runSkills) {
+    await skillDiscovery({ cwd, answers, args: { ...args, skills: true } });
+  } else {
+    log.dim('Skipped (minimal init). Enable with --skills or --full-interview.');
   }
 
-  // 11. Next steps
-  printNextSteps(answers);
+  // 9. Custom instructions
+  log.step('8/8 Custom instructions');
+  if (runInstructions) {
+    const instrWritten = await instructionGeneration({ cwd, answers, args });
+    if (instrWritten && instrWritten.length > 0) {
+      if (args.dryRun) log.warn('--dry-run: instruction plan:');
+      for (const w of instrWritten) {
+        log.raw(`  ${w.written ? '+' : '~'} ${w.path.replace(cwd + '/', '')}`);
+      }
+      if (!args.dryRun) log.ok(`Wrote ${instrWritten.length} instruction file${instrWritten.length > 1 ? 's' : ''}.`);
+    }
+  } else {
+    log.dim('Skipped (minimal init). Enable with --instructions or --full-interview.');
+  }
+
+  // 10. Next steps
+  printNextSteps(answers, { generatedInstructions: runInstructions });
+}
+
+/** Log which project fields were auto-pulled from the workspace. */
+function logAutoProjectInfo(info) {
+  const name = info?.name || {};
+  const oneLiner = info?.oneLiner || {};
+
+  if (name.value && !name.ambiguous) {
+    log.info(`Name:    ${kleur.bold(name.value)} ${kleur.gray(`(${name.sources[0].source})`)}`);
+  } else if (name.ambiguous) {
+    log.warn(`Multiple project names found (${name.sources.map((s) => s.source).join(', ')}) — asking.`);
+  }
+
+  if (oneLiner.value && !oneLiner.ambiguous) {
+    log.info(`Tagline: ${oneLiner.value} ${kleur.gray(`(${oneLiner.sources[0].source})`)}`);
+  } else if (oneLiner.ambiguous) {
+    log.warn(`Multiple descriptions found (${oneLiner.sources.map((s) => s.source).join(', ')}) — asking.`);
+  }
 }
 
 async function ask(message, initial = false) {
@@ -132,7 +191,7 @@ async function ask(message, initial = false) {
   return Boolean(v);
 }
 
-function printNextSteps(answers) {
+function printNextSteps(answers, { generatedInstructions = false } = {}) {
   const hasDocs = answers.docFiles?.length > 0;
   const platform = answers.platform || 'copilot';
   const codegraph = answers.codegraph;
@@ -165,8 +224,10 @@ function printNextSteps(answers) {
   } else {
     log.raw(kleur.gray(`        read PROJECT.md and implement Phase 1.`));
   }
-  log.raw(`  6. Review generated instruction files in .github/instructions/.`);
-  log.raw(kleur.gray(`        Edit applyTo globs and guidelines to fit your project.`));
+  if (generatedInstructions) {
+    log.raw(`  6. Review generated instruction files in .github/instructions/.`);
+    log.raw(kleur.gray(`        Edit applyTo globs and guidelines to fit your project.`));
+  }
 
   if (codegraph) {
     log.raw('');
@@ -183,6 +244,9 @@ function printNextSteps(answers) {
     log.raw('');
     log.raw(kleur.dim('Edit agent models anytime by changing `model:` in .opencode/agents/*.md.'));
   }
+
+  log.raw('');
+  log.raw(kleur.dim('Optional integrations: npx cli-five list-addons'));
   log.raw('');
 }
 

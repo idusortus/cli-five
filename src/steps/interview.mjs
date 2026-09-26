@@ -195,6 +195,65 @@ export async function interview(detected, args, docHints = {}) {
   });
 }
 
+/**
+ * Minimal interview — the default `init` path.
+ *
+ * Asks for the project name and one-liner only, and only when `projectInfo`
+ * could not confidently supply them. Everything else (stack, goals,
+ * constraints, persona, cost mode) falls back to `defaults`.
+ *
+ * `projectInfo` is the shape returned by `autoProjectInfo(cwd)`.
+ */
+export async function minimalInterview(detected, args, projectInfo = {}) {
+  const platform = args.__platform || 'copilot';
+  const nameInfo = projectInfo.name || {};
+  const oneLinerInfo = projectInfo.oneLiner || {};
+
+  let projectName = nameInfo.value || '';
+  let oneLiner = oneLinerInfo.value || '';
+
+  if (!args.yes) {
+    const questions = [];
+
+    if (!projectName || nameInfo.ambiguous) {
+      questions.push({
+        type: 'text',
+        name: 'projectName',
+        message: 'Project name',
+        initial: projectName || detected.projectName,
+      });
+    }
+
+    if (!oneLiner || oneLinerInfo.ambiguous) {
+      questions.push({
+        type: 'text',
+        name: 'oneLiner',
+        message: 'One-line description (becomes PROJECT.md vision)',
+        initial: oneLiner || '',
+      });
+    }
+
+    if (questions.length > 0) {
+      const answers = await prompts(questions, {
+        onCancel: () => {
+          throw new Error('Interview cancelled. Nothing was written.');
+        },
+      });
+      if (answers.projectName !== undefined) projectName = answers.projectName;
+      if (answers.oneLiner !== undefined) oneLiner = answers.oneLiner;
+    }
+  }
+
+  const base = defaults(detected, { projectName, oneLiner }, platform);
+  return normalize({
+    ...base,
+    projectName: (projectName || detected.projectName || '').trim(),
+    oneLiner: (oneLiner || '').trim(),
+    // Persona is opt-in on the minimal path (--persona / --full-interview).
+    snark: args.persona === true,
+  });
+}
+
 /** Default stack is first preset when nothing is detected and --yes is used. */
 function defaults(detected, docHints = {}, platform = 'copilot') {
   const hasDetected = detected.stacks.length > 0;

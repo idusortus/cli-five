@@ -1,5 +1,7 @@
 import kleur from 'kleur';
 import prompts from 'prompts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   PLATFORM_COPILOT,
   PLATFORM_OPENCODE,
@@ -22,19 +24,49 @@ import {
 const CUSTOM_SENTINEL = '__custom__';
 
 /**
+ * Resolve whether CodeGraph should be enabled when no explicit `--codegraph`
+ * / `--no-codegraph` value was passed.
+ *
+ * The registration/opt-out mechanism is unchanged — this only decides the
+ * default: on for the full interview, off for minimal init.
+ */
+export function resolveCodegraphDefault(args, fullInterview) {
+  if (args.codegraph === true || args.codegraph === false) return args.codegraph;
+  return Boolean(fullInterview);
+}
+
+/**
  * Ask the user to choose a target platform.
  * If args.target is a valid platform, skip the prompt.
+ *
+ * Options:
+ *   autoDetect   — infer the platform from an existing scaffold before prompting
+ *   askCodegraph — whether to ask the CodeGraph opt-out question (full interview)
+ *   codegraphDefault — resolved default when no explicit flag was passed
+ *
+ * Note: CodeGraph registration and the `--no-codegraph` opt-out are unchanged;
+ * this only controls whether the question is asked / what the default is.
  */
-export async function choosePlatform(args) {
+export async function choosePlatform(args, { autoDetect = false, askCodegraph = true, codegraphDefault } = {}) {
+  if (codegraphDefault === undefined) codegraphDefault = args.codegraph !== false;
+
   if (args.target) {
     const t = String(args.target).toLowerCase();
     if (PLATFORMS.includes(t)) {
-      return { platform: t, codegraph: args.codegraph !== false };
+      return { platform: t, codegraph: codegraphDefault };
+    }
+  }
+
+  if (autoDetect) {
+    const existing = detectExistingPlatform(args.cwd);
+    if (existing) {
+      log.dim(`Detected existing ${platformLabel(existing)} scaffold.`);
+      return { platform: existing, codegraph: codegraphDefault };
     }
   }
 
   if (args.yes) {
-    return { platform: PLATFORM_COPILOT, codegraph: args.codegraph !== false };
+    return { platform: PLATFORM_COPILOT, codegraph: codegraphDefault };
   }
 
   const { platform } = await prompts({
@@ -60,6 +92,10 @@ export async function choosePlatform(args) {
     throw new Error('Platform selection cancelled. Nothing was written.');
   }
 
+  if (!askCodegraph) {
+    return { platform, codegraph: codegraphDefault };
+  }
+
   const { codegraph } = await prompts({
     type: 'confirm',
     name: 'codegraph',
@@ -68,6 +104,13 @@ export async function choosePlatform(args) {
   });
 
   return { platform, codegraph: codegraph !== false };
+}
+
+/** Infer an existing scaffold's platform, or null when there is no scaffold. */
+export function detectExistingPlatform(cwd) {
+  if (existsSync(join(cwd, '.opencode', 'agents'))) return PLATFORM_OPENCODE;
+  if (existsSync(join(cwd, '.github', 'agents', 'orchestrator.agent.md'))) return PLATFORM_COPILOT;
+  return null;
 }
 
 /**

@@ -10,7 +10,14 @@
 npx cli-five init
 ```
 
-Interviews you, lets you pick a target platform and model provider, scaffolds agents + memory files + stack-specific instructions, discovers skills, and tells you what to do next.
+By default `init` is **minimal**: it scaffolds the 5-agent team and the tooling they need, asking only for the target platform and (when it can't find them) your project name and one-liner. Name and description are auto-pulled from `package.json` and `README.md`. Optional integrations — including CodeGraph, skills, and instruction files — are **not** installed unless you ask.
+
+```bash
+npx cli-five init --full-interview   # legacy: docs, goals, persona, model picker, CodeGraph, skills, instructions
+npx cli-five init --codegraph        # minimal, but add the CodeGraph MCP + AGENTS.md block
+```
+
+`--full-interview` (or passing `--doc`) restores the complete guided setup: stack presets, goals, constraints, persona toggle, per-agent model overrides, Copilot cost modes, CodeGraph, skill discovery, and stack-specific instruction generation. Individual pieces can also be toggled with `--codegraph`, `--skills`, `--instructions`, and `--persona`.
 
 ### Quick plugin install (personal use, Copilot only)
 
@@ -44,9 +51,9 @@ your-repo/
 │   │   ├── coder.agent.md
 │   │   ├── designer.agent.md
 │   │   └── reviewer.agent.md
-│   ├── copilot-instructions.md  # Persona + project mandates from interview
-│   ├── instructions/            # Stack-specific coding guidelines
-│   └── skills/                  # Installed skills from awesome-copilot + skills.sh
+│   ├── copilot-instructions.md  # Project mandates (persona is opt-in)
+│   ├── instructions/            # Container; stack guidelines via --instructions
+│   └── skills/                  # Container; skills via --skills
 ├── .vscode/mcp.json             # CodeGraph MCP server (optional)
 ├── AGENTS.md                    # Tool-agnostic project context (agents.md standard)
 ├── PROJECT.md                   # Long-form vision (rarely changes)
@@ -68,8 +75,8 @@ your-repo/
 │       ├── designer.md
 │       └── reviewer.md
 ├── opencode.json                # Project config, model defaults, CodeGraph MCP (optional)
-├── .github/instructions/        # Stack-specific coding guidelines
-├── .github/skills/              # Installed skills
+├── .github/instructions/        # Container; stack guidelines via --instructions
+├── .github/skills/              # Container; skills via --skills
 ├── AGENTS.md                    # Project rules + optional CodeGraph block
 ├── PROJECT.md
 ├── STATE.md
@@ -94,7 +101,10 @@ The plugin agents and scaffolded `.github/agents/*.agent.md` templates are inten
 ## Commands
 
 ```bash
-npx cli-five init              # interview + scaffold + skill discovery
+npx cli-five init              # minimal scaffold (5 agents + required tooling)
+npx cli-five init --full-interview  # full guided setup (interview, models, skills, instructions)
+npx cli-five add <name>        # install an optional add-on (dispatcher; targets land later)
+npx cli-five list-addons       # show installed vs. available add-ons
 npx cli-five doctor            # validate an existing cli-five setup
 npx cli-five list-stacks       # show detectable tech stacks
 npx cli-five help
@@ -104,33 +114,59 @@ npx cli-five help
 
 | Flag | Effect |
 |---|---|
-| `--yes`, `-y` | Accept interview defaults (overwrite gate still active) |
+| `--yes`, `-y` | Accept defaults (overwrite gate still active) |
 | `--force` | Overwrite without confirmation (use with `--yes`) |
 | `--dry-run` | Print actions, write nothing |
-| `--no-skills` | Skip skills.sh discovery step |
-| `--no-codegraph` | Skip CodeGraph MCP + instructions |
+| `--full-interview`, `--full` | Run the full legacy interview (docs, goals/constraints/persona, model picker). Also enables CodeGraph, skills + instructions |
+| `--skills` / `--no-skills` | Force skill discovery on/off |
+| `--instructions` / `--no-instructions` | Force stack-specific instruction generation on/off |
+| `--persona` / `--no-persona` | Include / omit the snarky persona block |
+| `--codegraph` / `--no-codegraph` | Force CodeGraph MCP + instructions on/off (default: on with `--full-interview`, off otherwise) |
 | `--target <t>` | Target platform: `copilot` or `opencode` (default: `copilot`) |
 | `--provider <p>` | Model provider: `copilot`, `opencode`, `opencode-go` (default: platform default) |
 | `--cost-mode <m>` | Set cost mode for Copilot: `premium`, `cheap`, or `mixed` |
-| `--doc <file>` | Read project docs to pre-fill interview (repeatable) |
+| `--doc <file>` | Read project docs to pre-fill interview (repeatable; implies `--full-interview`) |
 | `--cwd <path>` | Run against a different directory |
 
 ## What `init` does
 
+Default (`npx cli-five init`):
+
 1. **Detect** — fingerprints stack (Node/TS, Python, .NET, Kotlin, Rust, Go, etc.). Brownfield-aware.
-2. **Choose platform** — GitHub Copilot or OpenCode, with optional CodeGraph pairing.
+2. **Choose platform** — explicit `--target`, auto-detected from an existing scaffold, or prompted.
 3. **git init** — if needed. Asks first.
 4. **Overwrite gate** — double-confirms ("Proceed?" then "R U Sure?"). Only `--force --yes` bypasses.
-5. **Project info** — name, one-liner, stack, frameworks, goals, constraints, persona toggle.
-6. **Model configuration** — pick a provider and optionally override each agent's model.
-7. **Scaffold** — writes platform-specific files. Swaps `model:` per provider/selection.
-8. **Skill discovery** — multi-source discovery from **awesome-copilot** and **skills.sh**.
-9. **Custom instructions** — generates stack-specific `.instructions.md` files for detected languages.
-10. **Next steps** — platform-specific instructions. No button-clicking required.
+5. **Project info** — name and one-liner auto-pulled from `package.json` / `README.md`; asks only when missing or ambiguous.
+6. **Model configuration** — platform/provider defaults, no prompt.
+7. **Scaffold** — writes the 5 agents + required project memory/tooling files. Swaps `model:` per provider defaults.
+8. **Done** — prints platform-specific next steps.
+
+`--full-interview` additionally runs:
+
+- **Docs / manual interview** — project docs, stack preset, goals, constraints.
+- **Model customization** — provider picker + per-agent model overrides.
+- **Persona toggle** — snarky persona block.
+- **CodeGraph** — MCP registration + `AGENTS.md` block (also available standalone via `--codegraph`).
+- **Skill discovery** — multi-source discovery from **awesome-copilot** and **skills.sh**.
+- **Custom instructions** — stack-specific `.instructions.md` files for detected languages.
+
+## Add-ons
+
+Optional integrations live outside the default scaffold and are installed with `cli-five add <name>`.
+
+```bash
+npx cli-five add            # list known targets
+npx cli-five add codegraph  # stub in this release
+npx cli-five list-addons    # installed vs. available status
+```
+
+This release ships the **dispatcher and merge utility** only — no integration is wired in yet. Jev and the CodeGraph migration are future commits.
+
+Add-ons use `mergeBlock(file, markerFence, content)` to layer a fenced block into an existing JSON or Markdown file without touching the rest of it (distinct from init's blunt overwrite gate). Markdown gets `<!-- NAME_START -->` / `<!-- NAME_END -->` fences; JSON is deep-merged with existing keys preserved.
 
 ## Model providers
 
-During `init` you can choose the model provider and optionally customize each agent's model.
+During `init --full-interview` you can choose the model provider and optionally customize each agent's model. The minimal `init` path uses provider defaults (honouring `--provider` and `--cost-mode`).
 
 | Provider | Platform | Example model |
 |---|---|---|
@@ -155,7 +191,7 @@ Change anytime by editing the `model:` line in the agent files.
 
 ## CodeGraph
 
-CodeGraph adds a local, graph-backed codebase context server. When enabled, cli-five:
+CodeGraph adds a local, graph-backed codebase context server. It is **off by default** in the minimal scaffold; enable it with `--codegraph` or `--full-interview`. When enabled, cli-five:
 
 - Registers the CodeGraph MCP server in `opencode.json` (OpenCode) or `.vscode/mcp.json` (Copilot).
 - Adds a marker-fenced CodeGraph section to `AGENTS.md`.
@@ -184,7 +220,7 @@ No extra settings required. Project agents live in `.opencode/agents/` and the p
 
 ## Skill discovery
 
-cli-five searches **two sources** for skills matching your detected stack:
+Skill discovery runs during `init --full-interview` (or when you pass `--skills`). cli-five searches **two sources** for skills matching your detected stack:
 
 | Source | What it has | Stars |
 |---|---|---|
