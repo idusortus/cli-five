@@ -1,7 +1,7 @@
 ---
 description: "Handles all UI/UX design tasks. Use when: creating screens,
   layouts, theming, navigation flows, design systems."
-model: opencode-go/gpt-5.6-luna
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
 permissions:
   - action: read

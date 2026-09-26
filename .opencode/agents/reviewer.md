@@ -2,7 +2,7 @@
 description: "Reviews code and agent output for correctness, convention
   compliance, and architectural alignment. Use when: code review, auditing agent
   work, validating against specs."
-model: opencode-go/kimi-k2.7-code
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
 permissions:
   - action: read
