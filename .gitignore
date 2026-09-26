@@ -1,0 +1,7 @@
+# cli-five runtime memory (mutable per session — not shared config)
+STATE.md
+agent-diary.md
+histories/
+
+# Node
+node_modules/
