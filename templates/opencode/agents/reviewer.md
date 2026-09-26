@@ -3,14 +3,28 @@ name: Reviewer
 description: "Reviews code and agent output for correctness, convention compliance, and architectural alignment. Use when: code review, auditing agent work, validating against specs."
 mode: subagent
 model: opencode/claude-sonnet-4-6
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  list: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: list
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 ## Model Selection

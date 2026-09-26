@@ -3,18 +3,40 @@ name: Coder
 description: "Writes production code following workspace conventions. Use when: implementing features, fixing bugs, writing tests, creating modules."
 mode: subagent
 model: opencode/gpt-5.3-codex
-permission:
-  read: allow
-  edit: allow
-  write: allow
-  glob: allow
-  grep: allow
-  list: allow
-  bash: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
-  lsp: allow
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: write
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: list
+    resource: "*"
+    effect: allow
+  - action: bash
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: lsp
+    resource: "*"
+    effect: allow
 ---
 
 ## Model Selection

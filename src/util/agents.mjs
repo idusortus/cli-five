@@ -98,6 +98,14 @@ export function validateAgentSource(source, fileName, { requiredMarkers = [] } =
   return errors;
 }
 
+/**
+ * Validate OpenCode agent frontmatter.
+ *
+ * Accepts BOTH permission shapes, which OpenCode treats equivalently:
+ *   - V1 map:   permission: { read: allow, task: { planner: allow } }
+ *   - V2 list:  permissions: [{ action: read, resource: "*", effect: allow }, ...]
+ * The orchestrator must, in either shape, grant subagent access to its children.
+ */
 export function validateOpenCodeAgentSource(source, fileName) {
   const errors = [];
   const { frontmatter, body } = parseAgentSource(source);
@@ -122,11 +130,8 @@ export function validateOpenCodeAgentSource(source, fileName) {
     errors.push(`expected mode ${expectedMode}, found ${frontmatter.mode}`);
   }
 
-  if (fileName === 'orchestrator.md') {
-    const task = frontmatter.permission?.task || frontmatter.permissions?.task;
-    if (!task) {
-      errors.push('orchestrator must declare permission.task for subagents');
-    }
+  if (fileName === 'orchestrator.md' && !hasSubagentGrant(frontmatter)) {
+    errors.push('orchestrator must declare subagent/task permissions for its children');
   }
 
   if (!body.trim()) {
@@ -134,6 +139,27 @@ export function validateOpenCodeAgentSource(source, fileName) {
   }
 
   return errors;
+}
+
+/**
+ * True when the frontmatter grants subagent access to children, in either form:
+ *   V1: permission.task is a non-empty map
+ *   V2: permissions[] contains an action: subagent|task entry
+ */
+function hasSubagentGrant(frontmatter) {
+  const task = frontmatter.permission?.task;
+  if (task && typeof task === 'object' && Object.keys(task).length > 0) return true;
+  if (task === true) return true;
+
+  const list = frontmatter.permissions;
+  if (Array.isArray(list)) {
+    return list.some((entry) => {
+      const action = String(entry?.action || '').toLowerCase();
+      return action === 'subagent' || action === 'task';
+    });
+  }
+
+  return false;
 }
 
 function requiredFrontmatterKeys(fileName) {

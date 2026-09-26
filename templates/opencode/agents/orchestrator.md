@@ -3,12 +3,19 @@ name: Orchestrator
 description: "Coordinates multi-agent workflows. Delegates to Planner, Coder, Designer, and Reviewer. Use when: complex multi-step tasks, cross-cutting changes, feature implementation."
 mode: primary
 model: opencode/gpt-5.3-codex
-permission:
-  task:
-    planner: allow
-    coder: allow
-    designer: allow
-    reviewer: allow
+permissions:
+  - action: subagent
+    resource: planner
+    effect: allow
+  - action: subagent
+    resource: coder
+    effect: allow
+  - action: subagent
+    resource: designer
+    effect: allow
+  - action: subagent
+    resource: reviewer
+    effect: allow
 ---
 
 You are a project orchestrator. You break down complex requests into tasks and delegate to specialist subagents. You coordinate work but NEVER implement anything yourself.

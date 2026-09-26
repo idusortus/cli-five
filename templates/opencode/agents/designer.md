@@ -3,16 +3,34 @@ name: Designer
 description: "Handles all UI/UX design tasks. Use when: creating screens, layouts, theming, navigation flows, design systems."
 mode: subagent
 model: opencode/gemini-3.1-pro
-permission:
-  read: allow
-  edit: allow
-  write: allow
-  glob: allow
-  grep: allow
-  list: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: write
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: list
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 ## Model Selection
