@@ -1,28 +1,49 @@
 ---
-name: Coder
-description: "Writes production code following workspace conventions. Use when: implementing features, fixing bugs, writing tests, creating modules."
+description: "Writes production code following workspace conventions. Use when:
+  implementing features, fixing bugs, writing tests, creating modules."
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
-model: opencode-go/qwen3.8-max
-permission:
-  read: allow
-  edit: allow
-  write: allow
-  glob: allow
-  grep: allow
-  list: allow
-  bash: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
-  lsp: allow
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: list
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: lsp
+    resource: "*"
+    effect: allow
 ---
 
 ## Model Selection
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | GPT 5.3 Codex | 1x |
-| **Cheap** | Qwen 3.8 Max | 0x |
+| **Default** | DeepSeek V4.1 Flash |
 
 To switch: change the `model` key in frontmatter above.
 

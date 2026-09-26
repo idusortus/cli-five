@@ -1,16 +1,31 @@
 ---
-name: Planner
-description: "Creates implementation plans by researching the codebase, consulting documentation, and identifying edge cases. Use when: planning features, architectural decisions, or complex multi-file changes."
+description: "Creates implementation plans by researching the codebase,
+  consulting documentation, and identifying edge cases. Use when: planning
+  features, architectural decisions, or complex multi-file changes."
+model: opencode-go/kimi-k2.7-code
 mode: subagent
-model: opencode-go/deepseek-v4-pro
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  list: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: list
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 # Planning Agent
@@ -21,8 +36,7 @@ You create plans. You do NOT write code.
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Claude Opus 4.6 | 3x |
-| **Cheap** | Qwen 3.8 Flash | 0x |
+| **Default** | Deepseek Flash | 3x |
 
 To switch: change the `model` key in frontmatter above.
 

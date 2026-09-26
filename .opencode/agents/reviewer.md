@@ -1,24 +1,38 @@
 ---
-name: Reviewer
-description: "Reviews code and agent output for correctness, convention compliance, and architectural alignment. Use when: code review, auditing agent work, validating against specs."
-mode: subagent
+description: "Reviews code and agent output for correctness, convention
+  compliance, and architectural alignment. Use when: code review, auditing agent
+  work, validating against specs."
 model: opencode-go/kimi-k2.7-code
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  list: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
+mode: subagent
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: list
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 ## Model Selection
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Claude Sonnet 4.6 | 1x |
-| **Cheap** | Qwen 3.8 Flash | 0x |
+| **Default** | DeepSeek V4.1 Flash |
 
 To switch: change the `model` key in frontmatter above.
 

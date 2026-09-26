@@ -2,7 +2,7 @@
 
 > **Code Like I'm Five** — scaffold a 5-agent AI team into any repo.
 
-## Two ways to install
+## Three ways to install
 
 ### Full setup (recommended for teams)
 
@@ -26,6 +26,21 @@ copilot plugin install idusortus/cli-five
 ```
 
 Installs the 5 agents to your Copilot profile. No project config, no interview — just the agents with the same autonomous contracts shipped by the scaffolded templates.
+
+### Let an agent do it (prompt)
+
+Paste a ready-made prompt into any repo and have your agent install *and verify* cli-five there:
+
+```text
+Install cli-five in this repo for OpenCode and verify it works. Preview with
+`npx -y cli-five@latest init --target opencode --dry-run --yes` first, then run it
+without --dry-run. Confirm all five agents appear in `opencode debug agents`, run a
+live orchestrator->planner delegation smoke test, run `npx -y cli-five@latest doctor`,
+gitignore STATE.md/agent-diary.md/histories/, and leave everything staged without
+committing. Report what you verified.
+```
+
+The full version — platform detection, provider/auth checks, collision preview, stop conditions, and what to report back — is in **[docs/INSTALL_PROMPT.md](docs/INSTALL_PROMPT.md)**. It is generic: use it in any repository, Copilot or OpenCode.
 
 ## Supported platforms
 

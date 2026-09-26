@@ -1,26 +1,43 @@
 ---
-name: Designer
-description: "Handles all UI/UX design tasks. Use when: creating screens, layouts, theming, navigation flows, design systems."
-mode: subagent
+description: "Handles all UI/UX design tasks. Use when: creating screens,
+  layouts, theming, navigation flows, design systems."
 model: opencode-go/gpt-5.6-luna
-permission:
-  read: allow
-  edit: allow
-  write: allow
-  glob: allow
-  grep: allow
-  list: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
+mode: subagent
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: list
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 ## Model Selection
 
 | Mode | Model | Premium Cost |
 |---|---|---|
-| **Default** | Gemini 3.1 Pro | 1x |
-| **Cheap** | GPT 5.6 Luna | 0x |
+| **Default**  GPT 5.6 Luna | 0x |
 
 To switch: change the `model` key in frontmatter above.
 
