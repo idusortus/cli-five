@@ -67,6 +67,8 @@ export async function choosePlatform(args, { autoDetect = false, askCodegraph = 
   }
 
   if (args.yes) {
+    // Silent (`--yes`) platform default is pinned by tests/platform-config.test.mjs;
+    // normalizeProvider separately defaults to copilot in src/util/models.mjs.
     return { platform: PLATFORM_COPILOT, codegraph: codegraphDefault };
   }
 

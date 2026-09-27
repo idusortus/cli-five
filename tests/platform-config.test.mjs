@@ -27,3 +27,21 @@ test('choosePlatform honours the resolved codegraph default with an explicit tar
   assert.equal(full.platform, 'copilot');
   assert.equal(full.codegraph, true);
 });
+
+test('choosePlatform pins the silent --yes default to copilot', async () => {
+  const result = await choosePlatform(
+    { yes: true, cwd: '/tmp', codegraph: null },
+    { codegraphDefault: false },
+  );
+  assert.equal(result.platform, 'copilot');
+  assert.equal(result.codegraph, false);
+});
+
+test('choosePlatform honours an explicit target over --yes', async () => {
+  const result = await choosePlatform(
+    { target: 'opencode', yes: true, cwd: '/tmp', codegraph: null },
+    { codegraphDefault: true },
+  );
+  assert.equal(result.platform, 'opencode');
+  assert.equal(result.codegraph, true);
+});
