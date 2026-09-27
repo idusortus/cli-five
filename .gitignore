@@ -5,3 +5,6 @@ histories/
 
 # Node
 node_modules/
+
+# Generated npm smoke/test logs
+.ai_*.log
