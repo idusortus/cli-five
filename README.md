@@ -165,6 +165,18 @@ Default (`npx cli-five init`):
 - **Skill discovery** — multi-source discovery from **awesome-copilot** and **skills.sh**.
 - **Custom instructions** — stack-specific `.instructions.md` files for detected languages.
 
+## Idempotency
+
+Re-running cli-five converges instead of blindly overwriting:
+
+- **`add <name>` is a true no-op on re-run.** Add-ons merge into existing files (`mergeBlock`), so there are no duplicate MCP entries or `AGENTS.md` blocks.
+- **`init` converges.** Managed files — the agent files, `copilot-instructions.md`, and container READMEs — are rewritten only when their contents actually differ. Unchanged files are left alone; the plan uses `+ created`, `~ updated`, `= unchanged`, `. skipped`.
+- **User-owned files are create-once.** `PROJECT.md`, `STATE.md`, `decisions.md`, `agent-diary.md`, `AGENTS.md`, `histories/*.md`, and generated `.github/instructions/*.instructions.md` are written on first run and then skipped, so your edits survive a re-run.
+- **`opencode.json` is merged, not replaced.** cli-five seeds its defaults only where keys are missing, preserving your `mcp`, `plugins`, `permission`, and model overrides.
+- **`--force` opts back into overwrite** for a deliberate reset (use with `--yes`), including replacing `opencode.json` wholesale.
+
+`--dry-run` prints the same plan without writing anything.
+
 ## Add-ons
 
 Optional integrations live outside the default scaffold and are installed with `cli-five add <name>`.

@@ -14,11 +14,31 @@ export function readTemplate(...segments) {
   return readFileSync(templatePath(...segments), 'utf8');
 }
 
-export function writeFile(targetPath, contents, { dryRun = false } = {}) {
-  if (dryRun) return { written: false, path: targetPath };
+/**
+ * Write a file, reporting what happened. Idempotent by construction:
+ *
+ *   policy 'overwrite' (default) — write when the content differs; a no-op
+ *                                  (action 'unchanged') when it is byte-identical.
+ *   policy 'create'               — write only when the file is absent; an
+ *                                  existing file is left untouched (action
+ *                                  'skipped'). Used for user-owned memory files.
+ *
+ * Returns { written, action, path } where action is one of
+ * 'created' | 'updated' | 'unchanged' | 'skipped'. `written` is true only when
+ * bytes were actually flushed.
+ */
+export function writeFile(targetPath, contents, { dryRun = false, policy = 'overwrite' } = {}) {
+  const exists = existsSync(targetPath);
+  if (exists) {
+    if (policy === 'create') return { written: false, action: 'skipped', path: targetPath };
+    if (readFileSync(targetPath, 'utf8') === contents) {
+      return { written: false, action: 'unchanged', path: targetPath };
+    }
+  }
+  if (dryRun) return { written: false, action: exists ? 'updated' : 'created', path: targetPath };
   mkdirSync(dirname(targetPath), { recursive: true });
   writeFileSync(targetPath, contents);
-  return { written: true, path: targetPath };
+  return { written: true, action: exists ? 'updated' : 'created', path: targetPath };
 }
 
 export function fileExists(p) {

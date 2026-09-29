@@ -240,10 +240,13 @@ function matchCandidates(answers, installedSkills) {
 
 function writeInstructions(cwd, candidates, args) {
   const written = [];
+  // Generated once; users are expected to edit applyTo globs and guidelines, so
+  // a re-run must not clobber them. --force opts back into overwrite.
+  const policy = args.force ? 'overwrite' : 'create';
   for (const c of candidates) {
     const content = renderInstruction(c);
     const target = join(cwd, '.github', 'instructions', c.filename);
-    written.push(writeFile(target, content, args));
+    written.push(writeFile(target, content, { dryRun: args.dryRun, policy }));
   }
   return written;
 }
