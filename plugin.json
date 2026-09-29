@@ -1,7 +1,7 @@
 {
   "name": "cli-five",
   "description": "5-agent orchestration squad (Orchestrator, Planner, Coder, Designer, Reviewer) for GitHub Copilot and OpenCode.",
-  "version": "0.2.25",
+  "version": "0.2.26",
   "author": {
     "name": "idusortus"
   },
