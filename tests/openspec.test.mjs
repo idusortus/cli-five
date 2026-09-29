@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { detectOpenSpec, openspecToolFor, OPENSPEC_STATUS } from '../src/addons/openspec.mjs';
+import { detectOpenSpec, openspecToolFor, openspecSurfaceFor, OPENSPEC_STATUS } from '../src/addons/openspec.mjs';
 import { runOpenSpec } from '../src/addons/openspec-command.mjs';
 import { PLATFORM_COPILOT, PLATFORM_OPENCODE } from '../src/util/platforms.mjs';
 
@@ -16,6 +16,12 @@ function opencodeScaffold() {
   const dir = workspace();
   mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
   return dir;
+}
+
+/** Write the OpenCode command surface so openspecSurfaceFor() is true. */
+function opencodeSurface(dir) {
+  mkdirSync(join(dir, '.opencode', 'commands'), { recursive: true });
+  writeFileSync(join(dir, '.opencode', 'commands', 'opsx-archive.md'), '# archive');
 }
 
 /** Injectable exec that records every call and returns a fixed result. */
@@ -44,8 +50,23 @@ test('detectOpenSpec finds openspec/ and the OpenCode command + skill surfaces',
 
   const signals = detectOpenSpec(dir);
   assert.ok(signals.includes('openspec/'));
-  assert.ok(signals.includes('.opencode/commands/opsx-archive.md'));
+  assert.ok(signals.includes('.opencode/commands/opsx-*.md'));
   assert.ok(signals.includes('.opencode/skills/openspec-*/SKILL.md'));
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('detectOpenSpec finds Copilot surfaces with no top-level openspec/', () => {
+  const dir = workspace();
+  mkdirSync(join(dir, '.github', 'prompts'), { recursive: true });
+  writeFileSync(join(dir, '.github', 'prompts', 'opsx-archive.prompt.md'), '# archive');
+  mkdirSync(join(dir, '.github', 'skills', 'openspec-archive-change'), { recursive: true });
+  writeFileSync(join(dir, '.github', 'skills', 'openspec-archive-change', 'SKILL.md'), '# skill');
+
+  const signals = detectOpenSpec(dir);
+  assert.ok(signals.includes('.github/prompts/opsx-*.prompt.md'));
+  assert.ok(signals.includes('.github/skills/openspec-*/SKILL.md'));
+  assert.ok(!signals.includes('openspec/'));
 
   rmSync(dir, { recursive: true, force: true });
 });
@@ -86,15 +107,39 @@ test('runOpenSpec runs `openspec init --tools opencode` when openspec/ is absent
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('runOpenSpec runs `openspec update --force` when openspec/ is present', async () => {
+test('runOpenSpec runs `openspec update --force` when openspec/ and surfaces are present', async () => {
   const dir = opencodeScaffold();
   mkdirSync(join(dir, 'openspec'), { recursive: true });
+  opencodeSurface(dir);
   const { exec, calls } = recordingExec();
 
   await runOpenSpec({ cwd: dir, args: {}, exec });
 
   assert.deepEqual(calls[1].argv, ['update', '--force']);
   assert.equal(process.exitCode, 0);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('runOpenSpec re-inits when openspec/ exists but this platform has no surfaces', async () => {
+  const dir = opencodeScaffold();
+  mkdirSync(join(dir, 'openspec'), { recursive: true });
+  const { exec, calls } = recordingExec();
+
+  await runOpenSpec({ cwd: dir, args: {}, exec });
+
+  assert.deepEqual(calls[1].argv, ['init', '--tools', 'opencode']);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('openspecSurfaceFor reports per-platform surfaces and never throws on junk', () => {
+  const dir = opencodeScaffold();
+  assert.equal(openspecSurfaceFor(dir, PLATFORM_OPENCODE), false);
+  opencodeSurface(dir);
+  assert.equal(openspecSurfaceFor(dir, PLATFORM_OPENCODE), true);
+  assert.equal(openspecSurfaceFor(dir, PLATFORM_COPILOT), false);
+  assert.equal(openspecSurfaceFor(dir, 'unknown'), false);
 
   rmSync(dir, { recursive: true, force: true });
 });

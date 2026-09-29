@@ -18,6 +18,7 @@
     "bin",
     "src",
     "skills",
+    "docs/BOOTSTRAP_AGENTIC_STACK_PROMPT.md",
     "templates",
     "plugin-agents",
     "plugin.json",

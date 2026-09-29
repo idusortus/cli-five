@@ -1,8 +1,6 @@
 import kleur from 'kleur';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { log } from '../util/log.mjs';
-import { PLATFORM_COPILOT, PLATFORM_OPENCODE, platformLabel } from '../util/platforms.mjs';
+import { detectPlatform, platformLabel } from '../util/platforms.mjs';
 import { addCodegraphTo, CODEGRAPH_INIT_REMINDER, mcpTargetFor } from './codegraph.mjs';
 
 /**
@@ -36,12 +34,6 @@ export async function runCodegraph({ cwd, args = {} }) {
   log.dim(CODEGRAPH_INIT_REMINDER.replace('CodeGraph is configured. ', ''));
 
   return touched;
-}
-
-function detectPlatform(cwd) {
-  if (existsSync(join(cwd, '.opencode', 'agents'))) return PLATFORM_OPENCODE;
-  if (existsSync(join(cwd, '.github', 'agents', 'orchestrator.agent.md'))) return PLATFORM_COPILOT;
-  return 'unknown';
 }
 
 export const __testables = { detectPlatform };

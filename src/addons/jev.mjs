@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { log } from '../util/log.mjs';
 import { mergeBlock } from '../util/merge.mjs';
 import { templatePath } from '../util/fs.mjs';
+import { detectPlatform } from '../util/platforms.mjs';
 
 export const JEVR_STATUS =
   'local heuristic — jev-harness lacks a custom-criteria interface as of 2026-09-26';
@@ -83,12 +84,6 @@ function readPlugins(opencodePath) {
   } catch {
     return [];
   }
-}
-
-function detectPlatform(cwd) {
-  if (existsSync(join(cwd, '.opencode', 'agents'))) return 'opencode';
-  if (existsSync(join(cwd, '.github', 'agents', 'orchestrator.agent.md'))) return 'copilot';
-  return 'unknown';
 }
 
 function toPosix(p) {

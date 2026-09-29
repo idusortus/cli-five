@@ -65,11 +65,12 @@ STEP 3 — CODEGRAPH
 
 STEP 4 — OPENSPEC
 - PREFERRED: drive the cli-five add-on — `npx -y cli-five@latest add openspec`. It runs
-  `openspec init --tools opencode` when openspec/ is absent and `openspec update --force`
-  when it already exists, so re-running is idempotent; either path creates openspec/ and
-  installs the editor surfaces (the 7 opsx-* commands and the 7 openspec-* skills). Preview
-  with --dry-run. It needs the OpenSpec CLI (npm i -g @fission-ai/openspec); if that is
-  missing the add-on prints the install line and writes nothing.
+  `openspec init --tools opencode` when openspec/ is absent OR the platform's surfaces are
+  missing (e.g. after a platform switch), and `openspec update --force` when both are
+  present, so re-running is idempotent; either path creates openspec/ and installs the
+  editor surfaces (the opsx-* commands and the openspec-* skills). Preview with --dry-run.
+  It needs the OpenSpec CLI (npm i -g @fission-ai/openspec); if that is missing the add-on
+  prints the install line and writes nothing.
 - FALLBACK (cli-five unavailable): confirm, then from the repo root run
   `openspec init --tools opencode`. (Verified on @fission-ai/openspec v1.13.1: it creates
   openspec/ and installs the surfaces non-interactively.) Refresh later with
