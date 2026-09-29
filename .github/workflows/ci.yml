@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+  # Allow a manual run (e.g. to re-verify main if a push event is ever missed).
+  workflow_dispatch:
 
 jobs:
   test:
