@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+# Serialize publishes so two quick merges to main can't race the version-bump push.
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest

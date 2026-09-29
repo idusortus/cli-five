@@ -10,7 +10,7 @@ integrations (CodeGraph, OpenSpec, jev). Installation is idempotent and non-dest
 re-running never clobbers local edits.
 
 ## Stack
-- Node + TypeScript, Node
+- Node (ESM JavaScript), no build step
 
 ## Frameworks / Key Libraries
 - `kleur` (terminal color), `prompts` (interactive interview), `skills` (skill discovery), `yaml`

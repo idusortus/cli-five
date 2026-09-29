@@ -22,8 +22,9 @@ to `main`, so entries here are grouped by feature rather than by every patch num
 - Skill detection also scans `.opencode/skills`.
 - Fatal CLI errors print a concise message; the full stack is behind `CLI_FIVE_DEBUG=1`.
 - `plugin.json` version is kept in sync with `package.json` by the publish workflow.
-- Shared `readJsonFile` utility replaces two duplicated JSON readers (plus the inline
-  copies in `merge.mjs`).
+- Shared `readJsonFile` replaces two duplicated JSON readers; `merge.mjs`'s JSON parsing was
+  factored into a shared `readJsonObject` (it must throw on malformed JSON, unlike
+  `readJsonFile`, which returns `null`).
 
 ### Fixed
 
