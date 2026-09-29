@@ -7,7 +7,7 @@ just writing files.
 
 Use it when you would rather not drive the tooling yourself, or when you want the setup
 checked against the repo's real state (platform, authenticated provider, what already
-exists). It surveys first and adds only what is missing, so re-running it on an already
+exists). `cli-five init` is now **idempotent and non-destructive**, so re-running it on a
 set-up repo is safe. It changes repo files only and never commits or pushes.
 
 ---
@@ -25,7 +25,12 @@ output and report honestly if something fails.
 
 RULES
 - Repo files ONLY. Never edit ~/.config/opencode/**.
-- Never overwrite a file or block you did not create — STOP and ask.
+- cli-five init is idempotent and non-destructive: managed files converge, user-owned
+  files are created once, and opencode.json is merged add-only. It will not overwrite.
+- --yes is the safe non-interactive mode: it never prompts and only writes missing files.
+  The ONLY overwrite path is `--force --yes`, which also resets the user-owned memory
+  files (PROJECT.md, STATE.md, decisions.md, agent-diary.md). Confirm before using
+  --force; never use it just to "refresh".
 - Confirm before anything irreversible or machine-global: installing a CLI globally
   (npm i -g ...), `codegraph init` (builds an index), and `openspec init` (creates
   openspec/) each need an explicit yes.
@@ -47,12 +52,17 @@ STEP 2 — AGENT TEAM (cli-five, drive it, don't reimplement it)
 - If .opencode/agents/ is missing or incomplete, PREVIEW then install:
     npx -y cli-five@latest init --target opencode --dry-run --yes   # read the plan
     npx -y cli-five@latest init --target opencode --yes
-  Include --yes even on the dry run, or an ambiguous name/tagline makes cli-five prompt
-  interactively and hang. If the plan would overwrite anything unexpected, STOP.
+  --yes keeps it non-interactive and preserves existing files (it never prompts). The
+  plan symbols are `+ created`, `~ updated`, `= unchanged`, `. skipped`; under --yes you
+  will only see `+`/`=`/`.` — there is nothing to overwrite (~ appears only with --force).
+- init is idempotent and non-destructive: managed files converge (byte-compare),
+  user-owned files (PROJECT.md, STATE.md, decisions.md, agent-diary.md, AGENTS.md,
+  histories/*.md) are create-once, and opencode.json is merged add-only (existing `mcp`,
+  `plugins`, and model overrides preserved). Re-running is safe.
 - If it already exists: run `npx -y cli-five@latest doctor` and add only what it reports
   missing.
-- If `opencode auth list` shows a provider other than the one cli-five selected, re-run
-  with --provider <id>.
+- Provider: cli-five is auth-aware and auto-selects the provider you are authenticated
+  for; pass --provider <id> only to override.
 
 STEP 3 — CODEGRAPH
 - Register the MCP server + AGENTS.md block (idempotent fenced merge):
@@ -76,7 +86,8 @@ STEP 4 — OPENSPEC
   openspec/ and installs the surfaces non-interactively.) Refresh later with
   `openspec update --force`. If the installed version offers no such mechanism, vendor the
   opsx-* commands and openspec-* skills from a known-good source and record the version used.
-- Verify the root: `openspec list --json` — a `root` object means it is set up.
+- The add-on prints `Present: …`; that plus `openspec list --json` (a `root` object)
+  confirms the root.
 
 STEP 5 — OPENCHAMBER (nothing to install)
 - OpenChamber is a client that opens OpenCode repos; there is no per-repo config to
@@ -92,9 +103,10 @@ STEP 6 — VERIFY (this is the point; "files exist" != "it works")
   Expect PLAN-OK. A "Model unavailable" means a provider mismatch — fix it, do not
   leave broken agent files.
 - `npx -y cli-five@latest doctor` -> required files present.
-- `openspec list --json` -> root present.
+- OpenSpec: `openspec list --json` shows a `root`, and the add-on printed `Present: …`.
 - opencode.json contains the `codegraph` MCP entry and AGENTS.md has the fenced
   CodeGraph block.
+- If a cli-five step throws, re-run it with CLI_FIVE_DEBUG=1 to see the full stack.
 
 STEP 7 — GIT HYGIENE
 - Gitignore mutable per-session memory: STATE.md, agent-diary.md, histories/.
@@ -104,7 +116,7 @@ STEP 7 — GIT HYGIENE
 
 STOP AND ASK ME IF:
 - The platform is ambiguous.
-- A step would overwrite unexpected files.
+- You'd need --force (that path overwrites and resets the user-owned memory files).
 - A required CLI is missing (print the install command; do not install without approval).
 - No OpenCode provider is authenticated.
 - Any step fails twice.
@@ -124,16 +136,17 @@ If you just want the bootstrap without the ceremony:
 
 ```text
 Make this repo agent-ready, idempotently and repo-files-only. Survey first (platform,
-provider, what already exists), then: preview+install the cli-five agent team for
-OpenCode (`npx -y cli-five@latest init --target opencode --dry-run --yes` then without
---dry-run), add CodeGraph (`npx -y cli-five@latest add codegraph`, but ask before
-`npm i -g @colbymchenry/codegraph` / `codegraph init`), and set up OpenSpec
-(`npx -y cli-five@latest add openspec`; fallback `openspec init --tools opencode`, which
-also installs the `opsx-*` commands and `openspec-*` skills). Verify for real: `opencode debug agents`, a live orchestrator->planner smoke
-test expecting PLAN-OK, `npx -y cli-five@latest doctor`, and `openspec list --json`.
-Gitignore STATE.md/agent-diary.md/histories/, keep .opencode/agents/, opencode.json,
-AGENTS.md, PROJECT.md, decisions.md, openspec/ tracked, and leave everything staged
-without committing. Report what you verified.
+provider, what already exists), then: preview+install the cli-five agent team for OpenCode
+(`npx -y cli-five@latest init --target opencode --dry-run --yes` then without --dry-run;
+init is non-destructive and --yes keeps existing files — only `--force --yes` overwrites,
+and it also resets the memory files, so don't use it to refresh), add CodeGraph
+(`npx -y cli-five@latest add codegraph`, but ask before `npm i -g @colbymchenry/codegraph`
+/ `codegraph init`), and set up OpenSpec (`npx -y cli-five@latest add openspec`; fallback
+`openspec init --tools opencode`). Verify for real: `opencode debug agents`, a live
+orchestrator->planner smoke test expecting PLAN-OK, `npx -y cli-five@latest doctor`, and
+`openspec list --json`. Gitignore STATE.md/agent-diary.md/histories/, keep
+.opencode/agents/, opencode.json, AGENTS.md, PROJECT.md, decisions.md, openspec/ tracked,
+and leave everything staged without committing. Report what you verified.
 ```
 
 ## Pairs with the skill
