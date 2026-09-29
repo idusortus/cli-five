@@ -16,8 +16,8 @@ function workspace() {
   return mkdtempSync(join(tmpdir(), 'cli-five-addons-'));
 }
 
-test('registry lists codegraph and jev as available with status objects', () => {
-  assert.deepEqual(ADDON_NAMES.sort(), ['codegraph', 'jev']);
+test('registry lists codegraph, jev, and openspec as available with status objects', () => {
+  assert.deepEqual(ADDON_NAMES.sort(), ['codegraph', 'jev', 'openspec']);
 
   const codegraph = getAddon('codegraph');
   assert.equal(typeof codegraph.run, 'function', 'codegraph has a real runner');
@@ -32,6 +32,13 @@ test('registry lists codegraph and jev as available with status objects', () => 
   assert.equal(jev.capability, 'tier-routing only');
   assert.ok(/test-gate parked/.test(jev.status), 'jev status must mention the parked test-gate');
   assert.ok(/2026-09-26/.test(jev.status), 'jev status must be dated');
+
+  const openspec = getAddon('openspec');
+  assert.equal(typeof openspec.run, 'function', 'openspec has a real runner');
+  assert.equal(openspec.available, true);
+  assert.equal(typeof openspec.status, 'string', 'openspec status must not be a bare boolean');
+  assert.ok(openspec.status.length > 0);
+  assert.deepEqual(openspec.platforms, ['copilot', 'opencode']);
 
   for (const addon of listAddons()) {
     assert.ok(addon.label);

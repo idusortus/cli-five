@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { runJev, JEVR_STATUS, TEST_GATE_ISSUE } from './jev.mjs';
 import { runCodegraph } from './codegraph-command.mjs';
 import { CODEGRAPH_STATUS } from './codegraph.mjs';
+import { runOpenSpec } from './openspec-command.mjs';
+import { OPENSPEC_STATUS, detectOpenSpec } from './openspec.mjs';
 
 /**
  * Add-on registry for `cli-five add <name>`.
@@ -40,6 +42,18 @@ export const ADDONS = {
     platforms: ['opencode'],
     detect: detectJev,
     run: runJev,
+  },
+  openspec: {
+    name: 'openspec',
+    label: 'OpenSpec',
+    description: 'Spec-driven change workflow — drives the OpenSpec CLI to install its commands + skills.',
+    // Not a bare boolean: status names the CLI-driven shape explicitly.
+    available: true,
+    capability: 'openspec/ + commands + skills',
+    status: OPENSPEC_STATUS,
+    platforms: ['copilot', 'opencode'],
+    detect: detectOpenSpec,
+    run: runOpenSpec,
   },
 };
 

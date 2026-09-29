@@ -41,6 +41,7 @@ const OPTIONAL = [
   '.github/skills',
   'AGENTS.md',
   'histories/orchestrator.md',
+  'openspec',
 ];
 
 export async function doctor(args) {

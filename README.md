@@ -118,7 +118,7 @@ The plugin agents and scaffolded `.github/agents/*.agent.md` templates are inten
 ```bash
 npx cli-five init              # minimal scaffold (5 agents + required tooling)
 npx cli-five init --full-interview  # full guided setup (interview, models, skills, instructions)
-npx cli-five add <name>        # install an optional add-on (dispatcher; targets land later)
+npx cli-five add <name>        # install an optional add-on
 npx cli-five list-addons       # show installed vs. available add-ons
 npx cli-five doctor            # validate an existing cli-five setup
 npx cli-five list-stacks       # show detectable tech stacks
@@ -170,10 +170,11 @@ Default (`npx cli-five init`):
 Optional integrations live outside the default scaffold and are installed with `cli-five add <name>`.
 
 ```bash
-npx cli-five add            # list known targets
-npx cli-five add codegraph  # CodeGraph MCP registration + AGENTS.md instructions
-npx cli-five add jev        # tier-routing tool for the Planner (OpenCode only)
-npx cli-five list-addons    # installed vs. available status
+npx cli-five add             # list known targets
+npx cli-five add codegraph   # CodeGraph MCP registration + AGENTS.md instructions
+npx cli-five add jev         # tier-routing tool for the Planner (OpenCode only)
+npx cli-five add openspec    # drive the OpenSpec CLI: openspec/ + editor commands + skills
+npx cli-five list-addons     # installed vs. available status
 ```
 
 Add-ons use `mergeBlock(file, markerFence, content)` to layer a fenced block into an existing JSON or Markdown file without touching the rest of it (distinct from init's blunt overwrite gate). Markdown gets `<!-- NAME_START -->` / `<!-- NAME_END -->` fences; JSON is deep-merged with existing keys preserved. Re-running an add-on is idempotent — no duplicate MCP entries or AGENTS.md sections.
@@ -215,6 +216,23 @@ jev         installed (tier-routing only)                           available   
 **Fail-open is non-negotiable.** If the classifier is unavailable, errors, or returns malformed output, the tool returns `available: false` with tier `major` (the expensive tier) and never throws. The Planner falls back to its own judgment. cli-five and the scaffolded agents behave identically whether the plugin works, is missing, or is broken.
 
 **Copilot has no equivalent.** `add jev` refuses cleanly on a Copilot target (exit 1, no files written) — there is no `tools.add`-style surface there.
+
+### OpenSpec (`add openspec`)
+
+[OpenSpec](https://github.com/Fission-AI/OpenSpec) is the spec-driven change workflow. Unlike CodeGraph, it has **no config file for cli-five to merge** — the real install is the external OpenSpec CLI, which owns `openspec/` (`config.yaml`, `changes/`, `specs/`) *and* the editor surfaces (7 `opsx-*` commands + 7 `openspec-*` skills). So `add openspec` drives that CLI idempotently:
+
+- **`openspec/` absent** → `openspec init --tools <tool>` (creates the directory and installs the surfaces).
+- **`openspec/` present** → `openspec update --force` (refreshes the surfaces in place, no prompt).
+
+The `<tool>` id is `opencode` for OpenCode and `github-copilot` for Copilot, so it works on **both** platforms.
+
+cli-five does **not** bundle or install the OpenSpec CLI. Install it first:
+
+```bash
+npm i -g @fission-ai/openspec
+```
+
+If the CLI is missing, the runner prints that line and stops (exit 1, nothing written). `--dry-run` prints the exact command it would run without executing it.
 
 
 ## Model providers

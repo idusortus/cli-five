@@ -17,7 +17,7 @@ ${kleur.bold('Usage')}
 
 ${kleur.bold('Commands')}
   init            Scaffold the 5 agents + required tooling (minimal by default)
-  add <name>      Install an optional add-on (dispatcher; targets land later)
+  add <name>      Install an optional add-on
   list-addons     Show installed vs. available add-ons
   doctor          Validate an existing cli-five setup
   list-stacks     Show detectable tech stacks
