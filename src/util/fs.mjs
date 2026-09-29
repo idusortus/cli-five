@@ -45,6 +45,16 @@ export function fileExists(p) {
   return existsSync(p);
 }
 
+/** Read a file as JSON, returning null when it is absent or unparseable. */
+export function readJsonFile(filePath) {
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 export function listFilesRecursive(dir) {
   const out = [];
   if (!existsSync(dir)) return out;

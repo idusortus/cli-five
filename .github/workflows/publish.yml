@@ -34,6 +34,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
       - name: Bump patch version with conflict detection
         run: |
           PKG_NAME=$(node -p "require('./package.json').name")
@@ -55,6 +61,10 @@ jobs:
           done
           echo "Will publish version: $LOCAL_VERSION"
 
+      - name: Sync plugin.json version
+        run: |
+          node -e "const fs=require('fs');const v=require('./package.json').version;const j=JSON.parse(fs.readFileSync('plugin.json','utf8'));j.version=v;fs.writeFileSync('plugin.json',JSON.stringify(j,null,2)+'\n');"
+
       - name: Publish to npm
         # npm Trusted Publishing (OIDC). actions/setup-node writes an
         # `_authToken` line into the user .npmrc; remove it so npm does not
@@ -67,7 +77,7 @@ jobs:
 
       - name: Commit and push version bump
         run: |
-          git add package.json package-lock.json
+          git add package.json package-lock.json plugin.json
           git diff --cached --quiet || git commit -m "chore: bump patch version [skip ci]"
           git push
 

@@ -7,7 +7,6 @@ import { doctor } from './commands/doctor.mjs';
 import { listStacks } from './commands/list-stacks.mjs';
 import { add } from './commands/add.mjs';
 import { listAddonsCommand } from './commands/list-addons.mjs';
-import { STACK_SIGNATURES } from './steps/detect.mjs';
 
 const HELP = `${kleur.bold('cli-five')} ${kleur.gray('— Code Like I\'m Five')}
 Scaffold a 5-agent AI team into any repo.

@@ -68,20 +68,7 @@ export function mergeBlock(filePath, markerFence, content, options = {}) {
  */
 export function mergeDefaults(filePath, defaults, { dryRun = false } = {}) {
   const existed = existsSync(filePath);
-  let existing = {};
-  if (existed) {
-    const raw = readFileSync(filePath, 'utf8').trim();
-    if (raw) {
-      try {
-        existing = JSON.parse(raw);
-      } catch (err) {
-        throw new Error(`mergeDefaults: ${filePath} is not valid JSON: ${err.message}`);
-      }
-    }
-  }
-  if (!isPlainObject(existing)) {
-    throw new Error(`mergeDefaults: ${filePath} must contain a JSON object at the root`);
-  }
+  const existing = readJsonObject(filePath, 'mergeDefaults');
   if (!isPlainObject(defaults)) {
     throw new Error('mergeDefaults: defaults must be a plain object');
   }
@@ -147,22 +134,30 @@ function fenceMarkers(markerFence) {
 
 // ── JSON ──────────────────────────────────────────────────────────────
 
-function mergeJson(filePath, block, content, { fenceKey, track, metaKey }) {
-  let existing = {};
-  if (existsSync(filePath)) {
-    const raw = readFileSync(filePath, 'utf8').trim();
-    if (raw) {
-      try {
-        existing = JSON.parse(raw);
-      } catch (err) {
-        throw new Error(`mergeBlock: ${filePath} is not valid JSON: ${err.message}`);
-      }
-    }
-  }
+/**
+ * Read a file as a JSON object, throwing a labelled error on invalid JSON or a
+ * non-object root. Missing/empty files yield `{}`. Shared by mergeBlock and
+ * mergeDefaults so both report errors identically.
+ */
+function readJsonObject(filePath, label) {
+  if (!existsSync(filePath)) return {};
+  const raw = readFileSync(filePath, 'utf8').trim();
+  if (!raw) return {};
 
-  if (!isPlainObject(existing)) {
-    throw new Error(`mergeBlock: ${filePath} must contain a JSON object at the root`);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`${label}: ${filePath} is not valid JSON: ${err.message}`);
   }
+  if (!isPlainObject(parsed)) {
+    throw new Error(`${label}: ${filePath} must contain a JSON object at the root`);
+  }
+  return parsed;
+}
+
+function mergeJson(filePath, block, content, { fenceKey, track, metaKey }) {
+  const existing = readJsonObject(filePath, 'mergeBlock');
 
   let patch = content;
   if (typeof patch === 'string') {

@@ -221,7 +221,12 @@ function generateAll(cwd, answers, args) {
 }
 
 function matchCandidates(answers, installedSkills) {
-  const detectedIds = new Set((answers.stack || []).map(stackLabelToId));
+  // Prefer stable detected ids; fall back to the label map for preset-only
+  // stacks that were never detected in the workspace.
+  const detectedIds = new Set([
+    ...(Array.isArray(answers.stackIds) ? answers.stackIds : []),
+    ...(answers.stack || []).map(stackLabelToId),
+  ]);
   const out = [];
   const seen = new Set();
 
@@ -286,7 +291,11 @@ function renderInstruction(entry) {
  */
 function detectInstalledSkills(cwd) {
   const skills = new Set();
-  for (const dir of [join(cwd, '.agents', 'skills'), join(cwd, '.github', 'skills')]) {
+  for (const dir of [
+    join(cwd, '.agents', 'skills'),
+    join(cwd, '.github', 'skills'),
+    join(cwd, '.opencode', 'skills'),
+  ]) {
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.isDirectory() && existsSync(join(dir, entry.name, 'SKILL.md'))) {

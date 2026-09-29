@@ -4,17 +4,27 @@
 Code Like I'm Five — scaffold a 5-agent AI team (GitHub Copilot or OpenCode) into any repo.
 
 ## Goal
-TODO — declare the primary goal.
+Give any repository a working, autonomous 5-agent AI team — Orchestrator routing to
+Planner, Coder, Designer, and Reviewer — for **GitHub Copilot or OpenCode**, plus optional
+integrations (CodeGraph, OpenSpec, jev). Installation is idempotent and non-destructive:
+re-running never clobbers local edits.
 
 ## Stack
 - Node + TypeScript, Node
 
 ## Frameworks / Key Libraries
-- None declared.
+- `kleur` (terminal color), `prompts` (interactive interview), `skills` (skill discovery), `yaml`
+- Node's built-in test runner (`node --test`) and ESLint 10 (flat config)
 
 ## Quickstart
 ```bash
-TODO — add install + run commands here.
+npx cli-five init                 # minimal scaffold (5 agents + required tooling)
+npx cli-five init --full-interview
+npx cli-five doctor               # validate an existing setup
+npx cli-five list-addons
+npx cli-five add codegraph        # optional integrations
+
+npm ci && npm run lint && npm test # develop this repo
 ```
 
 ## Hard Constraints

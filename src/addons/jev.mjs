@@ -21,7 +21,7 @@ const PLUGIN_REL = join('.opencode', 'plugin', 'jev-tier-router');
  * embedded-server routing) and does NOT call Jev (no custom-criteria
  * interface in jev-harness as of this release).
  */
-export async function runJev({ cwd, args }) {
+export async function runJev({ cwd }) {
   const platform = detectPlatform(cwd);
 
   if (platform !== 'opencode') {

@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { mergeBlock } from '../util/merge.mjs';
-import { PLATFORM_COPILOT, PLATFORM_OPENCODE } from '../util/platforms.mjs';
+import { readJsonFile } from '../util/fs.mjs';
+import { PLATFORM_OPENCODE } from '../util/platforms.mjs';
 
 export const CODEGRAPH_STATUS = 'MCP registration + AGENTS.md instructions';
 export const CODEGRAPH_BLOCK_NAME = 'codegraph';
@@ -70,13 +71,13 @@ export function addCodegraphTo({ cwd, platform, dryRun = false, track = false })
     const opencodePath = join(cwd, 'opencode.json');
     // Preserve a pre-existing `plugins[]` (e.g. jev): deepMerge replaces arrays,
     // so carry the existing value through untouched at the root.
-    const existing = readJson(opencodePath) || {};
+    const existing = readJsonFile(opencodePath) || {};
     const patch = { mcp: codegraphOpencodeConfig() };
     if (Array.isArray(existing.plugins)) patch.plugins = existing.plugins;
     touched.push(mergeBlock(opencodePath, 'codegraph', patch, { dryRun, track }));
   } else {
     const mcpPath = join(cwd, '.vscode', 'mcp.json');
-    const existing = readJson(mcpPath) || {};
+    const existing = readJsonFile(mcpPath) || {};
     // Preserve the old key order (`inputs` first) so output matches the
     // pre-migration inline implementation byte-for-byte. `inputs` is an array;
     // carry it through so deepMerge's array-replace is a no-op.
@@ -99,18 +100,9 @@ export function addCodegraphTo({ cwd, platform, dryRun = false, track = false })
  */
 export function isCodegraphPresent(cwd, platform) {
   const mcpPath = join(cwd, mcpTargetFor(platform));
-  const cfg = readJson(mcpPath);
+  const cfg = readJsonFile(mcpPath);
   if (platform === PLATFORM_OPENCODE) return Boolean(cfg?.mcp?.codegraph);
   return Boolean(cfg?.servers?.codegraph);
-}
-
-function readJson(filePath) {
-  if (!existsSync(filePath)) return null;
-  try {
-    return JSON.parse(readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
 }
 
 /** Ensure a file exists with given content (used for a created-not-merged file). */
@@ -121,4 +113,4 @@ export function ensureFile(filePath, contents) {
   return true;
 }
 
-export const __testables = { readJson, mcpTargetFor };
+export const __testables = { mcpTargetFor };

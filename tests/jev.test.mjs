@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { __testables as pluginTestables } from '../templates/opencode/plugin/jev-tier-router/index.js';
-import { runJev, JEVR_TOOL, JEVR_STATUS } from '../src/addons/jev.mjs';
+import { runJev, JEVR_TOOL } from '../src/addons/jev.mjs';
 import { mergeBlock } from '../src/util/merge.mjs';
 
 const { classifyTask, CONFIDENCE_CUTOFF, FALLBACK_TIER } = pluginTestables;
@@ -63,7 +63,7 @@ test('runJev scaffolds the plugin and wires opencode.json + AGENTS.md', async ()
   writeFileSync(join(dir, 'opencode.json'), JSON.stringify({ $schema: 'x', model: 'keep-me' }, null, 2));
   writeFileSync(join(dir, 'AGENTS.md'), '# Project\n\nKeep this.\n');
 
-  await runJev({ cwd: dir, args: {} });
+  await runJev({ cwd: dir });
 
   // Plugin dir scaffolded with the confirmed convention
   const pluginDir = join(dir, '.opencode', 'plugin', 'jev-tier-router');
@@ -93,8 +93,8 @@ test('runJev is idempotent — re-running does not duplicate plugin entries', as
   mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
   writeFileSync(join(dir, 'opencode.json'), JSON.stringify({}, null, 2));
 
-  await runJev({ cwd: dir, args: {} });
-  await runJev({ cwd: dir, args: {} });
+  await runJev({ cwd: dir });
+  await runJev({ cwd: dir });
 
   const cfg = JSON.parse(readFileSync(join(dir, 'opencode.json'), 'utf8'));
   assert.equal(cfg.plugins.filter((p) => p.includes('jev-tier-router')).length, 1);
@@ -110,7 +110,7 @@ test('runJev preserves an existing plugins[] array (does not overwrite)', async 
   mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
   writeFileSync(join(dir, 'opencode.json'), JSON.stringify({ plugins: ['some/other-plugin'] }, null, 2));
 
-  await runJev({ cwd: dir, args: {} });
+  await runJev({ cwd: dir });
 
   const cfg = JSON.parse(readFileSync(join(dir, 'opencode.json'), 'utf8'));
   assert.ok(cfg.plugins.includes('some/other-plugin'));
@@ -127,7 +127,7 @@ test('runJev refuses cleanly on a Copilot target with no partial writes', async 
   writeFileSync(join(dir, '.github', 'agents', 'orchestrator.agent.md'), '---\n---\n');
   const before = process.exitCode;
 
-  await runJev({ cwd: dir, args: {} });
+  await runJev({ cwd: dir });
 
   assert.equal(process.exitCode, 1, 'refusal should set a non-zero exit code');
   assert.ok(!existsSync(join(dir, '.opencode')), 'no .opencode dir written');

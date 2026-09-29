@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_MODEL_MAP,
-  PROVIDER_MODEL_CATALOG,
   PROVIDERS,
   agentNames,
   getDefaultModelMap,

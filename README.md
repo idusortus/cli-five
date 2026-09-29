@@ -173,7 +173,7 @@ Re-running cli-five converges instead of blindly overwriting:
 - **`init` converges.** Managed files — the agent files, `copilot-instructions.md`, and container READMEs — are rewritten only when their contents actually differ. Unchanged files are left alone; the plan uses `+ created`, `~ updated`, `= unchanged`, `. skipped`.
 - **User-owned files are create-once.** `PROJECT.md`, `STATE.md`, `decisions.md`, `agent-diary.md`, `AGENTS.md`, `histories/*.md`, and generated `.github/instructions/*.instructions.md` are written on first run and then skipped, so your edits survive a re-run.
 - **`opencode.json` is merged, not replaced.** cli-five seeds its defaults only where keys are missing, preserving your `mcp`, `plugins`, `permission`, and model overrides.
-- **`--force` opts back into overwrite** for a deliberate reset (use with `--yes`), including replacing `opencode.json` wholesale.
+- **`--force` opts back into overwrite** for a deliberate reset (use with `--yes`), including replacing `opencode.json` wholesale. Note it also resets user-owned memory (`STATE.md`, `PROJECT.md`, `histories/*`), so there is no scripted "refresh managed files only" yet.
 
 `--dry-run` prints the same plan without writing anything.
 
@@ -359,9 +359,19 @@ ELI5 → CLI5. Code Like I'm Five. Five agents. Get it? Yeah, it's a stretch. Bu
 ```bash
 git clone https://github.com/idusortus/cli-five
 cd cli-five
-npm install
+npm ci
+npm run lint          # ESLint 10 (flat config)
+npm test              # node --test
 node bin/cli-five.mjs init --cwd /tmp/test-target
 ```
+
+CI (`.github/workflows/ci.yml`) runs lint + tests on Node 20/22/24 for every pull request
+and push to `main`; the publish workflow runs the same gate before releasing. The dev
+tooling (ESLint 10) needs Node ≥ 20.19 even though the CLI itself runs on Node ≥ 20.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
