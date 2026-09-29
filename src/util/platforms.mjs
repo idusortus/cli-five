@@ -16,17 +16,6 @@ export function platformLabel(value) {
   return value === PLATFORM_OPENCODE ? 'OpenCode' : 'GitHub Copilot';
 }
 
-export function agentDirFor(platform) {
-  return platform === PLATFORM_OPENCODE ? '.opencode/agents' : '.github/agents';
-}
-
-export function agentFileFor(platform, name) {
-  if (platform === PLATFORM_OPENCODE) {
-    return `${name}.md`;
-  }
-  return `${name}.agent.md`;
-}
-
 /**
  * Detect the platform from an existing scaffold, shared by add-ons and doctor.
  * Returns PLATFORM_OPENCODE, PLATFORM_COPILOT, or 'unknown' when neither

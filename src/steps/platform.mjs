@@ -18,8 +18,8 @@ import {
   providerForPlatform,
   providerLabel,
   PROVIDER_COPILOT,
+  PROVIDER_GO,
   PROVIDER_ZEN,
-  PROVIDERS,
 } from '../util/models.mjs';
 
 const CUSTOM_SENTINEL = '__custom__';

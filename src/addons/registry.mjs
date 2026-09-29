@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readJsonFile } from '../util/fs.mjs';
 import { runJev, JEVR_STATUS, TEST_GATE_ISSUE } from './jev.mjs';
 import { runCodegraph } from './codegraph-command.mjs';
 import { CODEGRAPH_STATUS } from './codegraph.mjs';
@@ -91,11 +92,11 @@ export function detectCodeGraph(cwd) {
   const signals = [];
 
   const opencodePath = join(cwd, 'opencode.json');
-  const opencodeCfg = readJson(opencodePath);
+  const opencodeCfg = readJsonFile(opencodePath);
   if (opencodeCfg?.mcp?.codegraph) signals.push('opencode.json mcp.codegraph');
 
   const mcpPath = join(cwd, '.vscode', 'mcp.json');
-  const mcpCfg = readJson(mcpPath);
+  const mcpCfg = readJsonFile(mcpPath);
   if (mcpCfg?.servers?.codegraph) signals.push('.vscode/mcp.json servers.codegraph');
 
   const agentsPath = join(cwd, 'AGENTS.md');
@@ -111,15 +112,6 @@ export function detectCodeGraph(cwd) {
   return signals;
 }
 
-function readJson(filePath) {
-  if (!existsSync(filePath)) return null;
-  try {
-    return JSON.parse(readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Detect the jev tier-router plugin: its directory on disk and/or its entry in
  * opencode.json's `plugins` array. Read-only.
@@ -131,7 +123,7 @@ export function detectJev(cwd) {
     signals.push('.opencode/plugin/jev-tier-router');
   }
 
-  const cfg = readJson(join(cwd, 'opencode.json'));
+  const cfg = readJsonFile(join(cwd, 'opencode.json'));
   if (Array.isArray(cfg?.plugins) && cfg.plugins.some((p) => String(p).includes('jev-tier-router'))) {
     signals.push('opencode.json plugins[]');
   }

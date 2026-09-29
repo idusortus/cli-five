@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { log } from '../util/log.mjs';
 import { readTemplate, render, writeFile, listFilesRecursive, relTo, templatePath } from '../util/fs.mjs';
 import { readFileSync } from 'node:fs';
-import { PLATFORM_COPILOT, PLATFORM_OPENCODE, agentDirFor, agentFileFor } from '../util/platforms.mjs';
+import { PLATFORM_COPILOT, PLATFORM_OPENCODE } from '../util/platforms.mjs';
 import { addCodegraphTo } from '../addons/codegraph.mjs';
 import { mergeDefaults } from '../util/merge.mjs';
 
@@ -33,6 +33,15 @@ const COPILOT_COST_MODE_MAP = {
     Reviewer: 'Claude Opus 4.6 (copilot)',
   },
 };
+
+/**
+ * Write policy for cli-five-owned (managed) files. Interactive runs (after the
+ * confirm gate) and `--force` overwrite; a non-interactive `--yes` run keeps
+ * existing files and only fills gaps, so `--yes` can never clobber.
+ */
+function managedPolicy(args) {
+  return args.yes && !args.force ? 'create' : 'overwrite';
+}
 
 export function scaffold({ cwd, answers, args }) {
   const platform = answers.platform || PLATFORM_COPILOT;
@@ -76,10 +85,17 @@ export function scaffold({ cwd, answers, args }) {
     );
   }
 
-  // CodeGraph — delegated to the shared add codegraph implementation.
+  // CodeGraph — delegated to the shared add codegraph implementation. Guarded
+  // so a malformed target (e.g. invalid opencode.json) is reported, not thrown
+  // mid-scaffold after agents were already written.
   if (answers.codegraph) {
-    for (const t of addCodegraphTo({ cwd, platform, dryRun: args.dryRun })) {
-      written.push({ path: t.path, action: t.action, written: !args.dryRun && t.action !== 'unchanged' });
+    try {
+      for (const t of addCodegraphTo({ cwd, platform, dryRun: args.dryRun })) {
+        written.push({ path: t.path, action: t.action, written: !args.dryRun && t.action !== 'unchanged' });
+      }
+    } catch (err) {
+      log.warn(`Skipped CodeGraph registration: ${err.message}`);
+      log.dim('Fix the file, then re-run `npx cli-five add codegraph`.');
     }
   }
 
@@ -88,6 +104,7 @@ export function scaffold({ cwd, answers, args }) {
 
 function scaffoldCopilot({ cwd, answers, args, vars }) {
   const written = [];
+  const managed = { dryRun: args.dryRun, policy: managedPolicy(args) };
   const modelByAgent = answers.customizedModels
     ? answers.modelMap
     : COPILOT_COST_MODE_MAP[answers.costMode] || COPILOT_COST_MODE_MAP.premium;
@@ -96,30 +113,31 @@ function scaffoldCopilot({ cwd, answers, args, vars }) {
   for (const file of AGENT_NAMES.map((n) => `${n}.agent.md`)) {
     const src = readFileSync(templatePath('.github', 'agents', file), 'utf8');
     const swapped = swapModel(src, modelByAgent);
-    written.push(writeFile(join(cwd, '.github', 'agents', file), swapped, args));
+    written.push(writeFile(join(cwd, '.github', 'agents', file), swapped, managed));
   }
 
   // copilot-instructions.md
   const ci = render(readTemplate('.github', 'copilot-instructions.md.tmpl'), vars);
-  written.push(writeFile(join(cwd, '.github', 'copilot-instructions.md'), ci, args));
+  written.push(writeFile(join(cwd, '.github', 'copilot-instructions.md'), ci, managed));
 
   // Empty containers
   written.push(
     writeFile(
       join(cwd, '.github', 'instructions', 'README.md'),
       readTemplate('.github', 'instructions', 'README.md'),
-      args,
+      managed,
     ),
   );
   written.push(
-    writeFile(join(cwd, '.github', 'skills', 'README.md'), readTemplate('.github', 'skills', 'README.md'), args),
+    writeFile(join(cwd, '.github', 'skills', 'README.md'), readTemplate('.github', 'skills', 'README.md'), managed),
   );
 
   return written;
 }
 
-function scaffoldOpenCode({ cwd, answers, args, vars }) {
+function scaffoldOpenCode({ cwd, answers, args }) {
   const written = [];
+  const managed = { dryRun: args.dryRun, policy: managedPolicy(args) };
   const modelByAgent = answers.modelMap || {};
   const orchestratorModel = modelByAgent.Orchestrator || 'opencode/gpt-5.3-codex';
 
@@ -127,7 +145,7 @@ function scaffoldOpenCode({ cwd, answers, args, vars }) {
   for (const name of AGENT_NAMES) {
     const src = readFileSync(templatePath('opencode', 'agents', `${name}.md`), 'utf8');
     const swapped = swapModel(src, modelByAgent);
-    written.push(writeFile(join(cwd, '.opencode', 'agents', `${name}.md`), swapped, args));
+    written.push(writeFile(join(cwd, '.opencode', 'agents', `${name}.md`), swapped, managed));
   }
 
   // opencode.json — add-only merge so a re-run preserves user keys (mcp,
@@ -157,11 +175,11 @@ function scaffoldOpenCode({ cwd, answers, args, vars }) {
     writeFile(
       join(cwd, '.github', 'instructions', 'README.md'),
       readTemplate('.github', 'instructions', 'README.md'),
-      args,
+      managed,
     ),
   );
   written.push(
-    writeFile(join(cwd, '.github', 'skills', 'README.md'), readTemplate('.github', 'skills', 'README.md'), args),
+    writeFile(join(cwd, '.github', 'skills', 'README.md'), readTemplate('.github', 'skills', 'README.md'), managed),
   );
 
   return written;

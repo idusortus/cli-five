@@ -10,7 +10,7 @@ import { scaffold, summarize, actionSymbol } from '../steps/scaffold.mjs';
 import { skillDiscovery } from '../steps/skills.mjs';
 import { instructionGeneration } from '../steps/instructions.mjs';
 import { choosePlatform, chooseModels, resolveCodegraphDefault } from '../steps/platform.mjs';
-import { isGitRepo, gitInit } from '../util/git.mjs';
+import { gitInit } from '../util/git.mjs';
 import { platformLabel } from '../util/platforms.mjs';
 import { autoProjectInfo } from '../util/project.mjs';
 import { detectAuthenticatedProviders } from '../util/auth.mjs';
@@ -54,7 +54,9 @@ export async function init(args) {
 
   // 3. git init if needed
   if (!detected.hasGit) {
-    if (args.yes || (await ask('Run `git init`?', true))) {
+    if (args.dryRun) {
+      log.dim('--dry-run: would run `git init`.');
+    } else if (args.yes || (await ask('Run `git init`?', true))) {
       gitInit(cwd);
       log.ok('Initialised git repo.');
     } else {
@@ -69,7 +71,14 @@ export async function init(args) {
     log.warn('Aborted. Nothing written.');
     return;
   }
-  if (!detected.hasAgents && !detected.hasCopilotInstructions) log.dim('No collisions.');
+  if (
+    !detected.hasAgents
+    && !detected.hasCopilotInstructions
+    && !detected.hasOpencodeAgents
+    && !detected.hasOpencodeConfig
+  ) {
+    log.dim('No collisions.');
+  }
 
   // 5. Project info + model configuration
   args.__platform = platform;
@@ -117,6 +126,10 @@ export async function init(args) {
     ? await interview(detected, args, docHints)
     : await minimalInterview(detected, args, docHints);
 
+  // Carry stable detected stack ids alongside the display labels so stack →
+  // instruction matching survives label wording changes.
+  answers.stackIds = detected.stacks.map((s) => s.id);
+
   // CLI overrides — apply to both paths.
   if (args.costMode && ['premium', 'cheap', 'mixed'].includes(args.costMode)) {
     answers.costMode = args.costMode;
@@ -142,8 +155,13 @@ export async function init(args) {
   log.raw(summarize(written, cwd));
   if (!args.dryRun) {
     const changed = written.filter((w) => w.written).length;
-    const untouched = written.length - changed;
-    log.ok(`Wrote ${changed} file${changed === 1 ? '' : 's'}${untouched ? ` (${untouched} unchanged)` : ''}.`);
+    const kept = written.filter((w) => w.action === 'skipped').length;
+    const same = written.length - changed - kept;
+    const bits = [];
+    if (kept) bits.push(`${kept} kept`);
+    if (same) bits.push(`${same} unchanged`);
+    const suffix = bits.length ? ` (${bits.join(', ')})` : '';
+    log.ok(`Wrote ${changed} file${changed === 1 ? '' : 's'}${suffix}.`);
   }
 
   // 8. Skill discovery
@@ -165,8 +183,13 @@ export async function init(args) {
       }
       if (!args.dryRun) {
         const changed = instrWritten.filter((w) => w.written).length;
-        const untouched = instrWritten.length - changed;
-        log.ok(`Wrote ${changed} instruction file${changed === 1 ? '' : 's'}${untouched ? ` (${untouched} unchanged)` : ''}.`);
+        const kept = instrWritten.filter((w) => w.action === 'skipped').length;
+        const same = instrWritten.length - changed - kept;
+        const bits = [];
+        if (kept) bits.push(`${kept} kept`);
+        if (same) bits.push(`${same} unchanged`);
+        const suffix = bits.length ? ` (${bits.join(', ')})` : '';
+        log.ok(`Wrote ${changed} instruction file${changed === 1 ? '' : 's'}${suffix}.`);
       }
     }
   } else {
@@ -219,14 +242,19 @@ function printNextSteps(answers, { generatedInstructions = false } = {}) {
   log.raw(kleur.bold().green('Done. Next steps:'));
   log.raw('');
 
+  let stepNo = 5;
   if (platform === 'opencode') {
-    log.raw(`  1. Install the CodeGraph CLI if you haven't:`);
-    log.raw(kleur.gray(`        npm i -g @colbymchenry/codegraph`));
-    log.raw(`  2. Index this project with CodeGraph:`);
-    log.raw(kleur.gray(`        codegraph init`));
-    log.raw(`  3. Run OpenCode from this directory:`);
+    let n = 0;
+    if (codegraph) {
+      log.raw(`  ${++n}. Install the CodeGraph CLI if you haven't:`);
+      log.raw(kleur.gray(`        npm i -g @colbymchenry/codegraph`));
+      log.raw(`  ${++n}. Index this project with CodeGraph:`);
+      log.raw(kleur.gray(`        codegraph init`));
+    }
+    log.raw(`  ${++n}. Run OpenCode from this directory:`);
     log.raw(kleur.gray(`        opencode`));
-    log.raw(`  4. Select ${kleur.bold('Orchestrator')} and describe what you want built.`);
+    log.raw(`  ${++n}. Select ${kleur.bold('Orchestrator')} and describe what you want built.`);
+    stepNo = n + 1;
 
     // A provider the user is not authenticated for produces agent files whose
     // models silently fail. Surface that here rather than at first agent use.
@@ -248,7 +276,7 @@ function printNextSteps(answers, { generatedInstructions = false } = {}) {
     log.raw(`  4. Select ${kleur.bold('Orchestrator')} — it routes tasks autonomously to Planner, Coder, Designer, and Reviewer.`);
   }
 
-  log.raw(`  5. ${hasDocs ? 'Kickoff prompt (paste this into Orchestrator):' : 'Start building:'}`);
+  log.raw(`  ${stepNo++}. ${hasDocs ? 'Kickoff prompt (paste this into Orchestrator):' : 'Start building:'}`);
   if (hasDocs) {
     const docList = answers.docFiles.join(', ');
     log.raw(kleur.cyan(`        Review PROJECT.md (your source docs — ${docList} — are embedded`));
@@ -257,7 +285,7 @@ function printNextSteps(answers, { generatedInstructions = false } = {}) {
     log.raw(kleur.gray(`        read PROJECT.md and implement Phase 1.`));
   }
   if (generatedInstructions) {
-    log.raw(`  6. Review generated instruction files in .github/instructions/.`);
+    log.raw(`  ${stepNo++}. Review generated instruction files in .github/instructions/.`);
     log.raw(kleur.gray(`        Edit applyTo globs and guidelines to fit your project.`));
   }
 

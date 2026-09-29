@@ -6,7 +6,7 @@ This file is the tool-agnostic project context. Codex, Cursor, Aider, Gemini CLI
 and Copilot all read `AGENTS.md` per the [agents.md](https://agents.md) convention.
 
 ## Goal
-TODO — declare the primary goal.
+Scaffold a working 5-agent AI team (GitHub Copilot or OpenCode) into any repo — idempotently.
 
 ## Stack
 Node + TypeScript, Node

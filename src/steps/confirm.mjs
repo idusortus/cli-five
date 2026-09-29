@@ -13,10 +13,18 @@ export async function confirmOverwriteIfNeeded(detected, args) {
     return true;
   }
 
+  // Non-interactive: keep what's there and only add missing files. This makes
+  // `init --yes` safe to re-run (and it can no longer hang on a prompt).
+  if (args.yes) {
+    log.info('--yes set: keeping existing files; only missing files are written.');
+    log.dim('Use --force to overwrite, or omit --yes to be asked.');
+    return true;
+  }
+
   const first = await prompts({
     type: 'confirm',
     name: 'ok',
-    message: 'This will OVERWRITE the files above. Proceed?',
+    message: 'This may OVERWRITE the files above. Proceed?',
     initial: false,
   });
   if (!first.ok) return false;
