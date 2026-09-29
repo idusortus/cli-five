@@ -8,7 +8,7 @@ import {
   validateAgentSource,
   validateOpenCodeAgentSource,
 } from '../util/agents.mjs';
-import { PLATFORM_COPILOT, PLATFORM_OPENCODE } from '../util/platforms.mjs';
+import { PLATFORM_COPILOT, PLATFORM_OPENCODE, detectPlatform } from '../util/platforms.mjs';
 
 const COPILOT_REQUIRED = [
   '.github/copilot-instructions.md',
@@ -41,11 +41,15 @@ const OPTIONAL = [
   '.github/skills',
   'AGENTS.md',
   'histories/orchestrator.md',
+  'openspec',
 ];
 
 export async function doctor(args) {
   const cwd = args.cwd;
-  const platform = detectPlatform(cwd);
+  // doctor assumes Copilot when no scaffold marker is found (its required-file
+  // list is Copilot's), so map the shared 'unknown' back to Copilot here.
+  const detected = detectPlatform(cwd);
+  const platform = detected === 'unknown' ? PLATFORM_COPILOT : detected;
   log.raw(kleur.bold().magenta('\ncli-five doctor') + kleur.gray(`  ${cwd}`));
   log.info(`Detected platform: ${kleur.bold(platform)}`);
   let fail = 0;
@@ -132,10 +136,4 @@ export async function doctor(args) {
     log.err(`${fail} required file(s) missing. Run \`npx cli-five init\`.`);
     process.exit(1);
   }
-}
-
-function detectPlatform(cwd) {
-  if (existsSync(join(cwd, '.opencode', 'agents'))) return PLATFORM_OPENCODE;
-  if (existsSync(join(cwd, '.github', 'agents', 'orchestrator.agent.md'))) return PLATFORM_COPILOT;
-  return PLATFORM_COPILOT;
 }

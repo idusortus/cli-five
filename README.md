@@ -118,7 +118,7 @@ The plugin agents and scaffolded `.github/agents/*.agent.md` templates are inten
 ```bash
 npx cli-five init              # minimal scaffold (5 agents + required tooling)
 npx cli-five init --full-interview  # full guided setup (interview, models, skills, instructions)
-npx cli-five add <name>        # install an optional add-on (dispatcher; targets land later)
+npx cli-five add <name>        # install an optional add-on
 npx cli-five list-addons       # show installed vs. available add-ons
 npx cli-five doctor            # validate an existing cli-five setup
 npx cli-five list-stacks       # show detectable tech stacks
@@ -170,10 +170,11 @@ Default (`npx cli-five init`):
 Optional integrations live outside the default scaffold and are installed with `cli-five add <name>`.
 
 ```bash
-npx cli-five add            # list known targets
-npx cli-five add codegraph  # CodeGraph MCP registration + AGENTS.md instructions
-npx cli-five add jev        # tier-routing tool for the Planner (OpenCode only)
-npx cli-five list-addons    # installed vs. available status
+npx cli-five add             # list known targets
+npx cli-five add codegraph   # CodeGraph MCP registration + AGENTS.md instructions
+npx cli-five add jev         # tier-routing tool for the Planner (OpenCode only)
+npx cli-five add openspec    # drive the OpenSpec CLI: openspec/ + editor commands + skills
+npx cli-five list-addons     # installed vs. available status
 ```
 
 Add-ons use `mergeBlock(file, markerFence, content)` to layer a fenced block into an existing JSON or Markdown file without touching the rest of it (distinct from init's blunt overwrite gate). Markdown gets `<!-- NAME_START -->` / `<!-- NAME_END -->` fences; JSON is deep-merged with existing keys preserved. Re-running an add-on is idempotent — no duplicate MCP entries or AGENTS.md sections.
@@ -216,6 +217,33 @@ jev         installed (tier-routing only)                           available   
 
 **Copilot has no equivalent.** `add jev` refuses cleanly on a Copilot target (exit 1, no files written) — there is no `tools.add`-style surface there.
 
+### OpenSpec (`add openspec`)
+
+[OpenSpec](https://github.com/Fission-AI/OpenSpec) is the spec-driven change workflow. Unlike CodeGraph, it has **no config file for cli-five to merge** — the real install is the external OpenSpec CLI, which owns `openspec/` (`config.yaml`, `changes/`, `specs/`) *and* the editor surfaces (the `opsx-*` commands + `openspec-*` skills). So `add openspec` drives that CLI idempotently:
+
+- **`openspec/` absent, or the platform's surfaces missing** → `openspec init --tools <tool>` (creates the directory and installs the surfaces; safe to re-run).
+- **`openspec/` and the surfaces both present** → `openspec update --force` (refreshes in place, no prompt).
+
+The surfaces check matters for platform switches: a repo set up for Copilot, then used from OpenCode, gets re-`init`ed to add the OpenCode `opsx-*` commands rather than only refreshed.
+
+The `<tool>` id is `opencode` for OpenCode and `github-copilot` for Copilot, so it works on **both** platforms.
+
+cli-five does **not** bundle or install the OpenSpec CLI. Install it first:
+
+```bash
+npm i -g @fission-ai/openspec
+```
+
+If the CLI is missing, the runner prints that line and stops (exit 1, nothing written). `--dry-run` prints the exact command it would run without executing it.
+
+### Bootstrap the agentic stack (skill + prompt)
+
+Two packaged artifacts automate the whole setup — the cli-five agent team, CodeGraph, and OpenSpec — idempotently:
+
+- **Skill:** `skills/bootstrap-agentic-stack/SKILL.md` (shipped in the package). Copy the `skills/bootstrap-agentic-stack/` folder into the target repo's `.opencode/skills/` to make it invocable there.
+- **Prompt:** `docs/BOOTSTRAP_AGENTIC_STACK_PROMPT.md` — a copy-paste prompt for agents (or repos) that cannot load the skill yet.
+
+Both survey first, add only what is missing, change repo files only, and never commit or push. The prompt document carries the full procedure and guardrails.
 
 ## Model providers
 
