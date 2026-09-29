@@ -53,6 +53,64 @@ export function mergeBlock(filePath, markerFence, content, options = {}) {
   return { path: filePath, block, action: result.action, dryRun };
 }
 
+// ── Defaults (add-only merge) ─────────────────────────────────────────
+
+/**
+ * Fill in missing keys from `defaults` without overwriting any existing value.
+ *
+ * Unlike `mergeBlock`, this never replaces a present key: nested objects are
+ * filled recursively, and existing arrays/scalars are always preserved. So a
+ * user's `model`, `mcp`, `plugins`, `permission` (etc.) survive a re-run, while
+ * keys cli-five owns that are absent get seeded. Idempotent: re-running with the
+ * same defaults is a no-op (action 'unchanged').
+ *
+ * @returns {{path:string, action:'created'|'updated'|'unchanged', dryRun:boolean}}
+ */
+export function mergeDefaults(filePath, defaults, { dryRun = false } = {}) {
+  const existed = existsSync(filePath);
+  let existing = {};
+  if (existed) {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    if (raw) {
+      try {
+        existing = JSON.parse(raw);
+      } catch (err) {
+        throw new Error(`mergeDefaults: ${filePath} is not valid JSON: ${err.message}`);
+      }
+    }
+  }
+  if (!isPlainObject(existing)) {
+    throw new Error(`mergeDefaults: ${filePath} must contain a JSON object at the root`);
+  }
+  if (!isPlainObject(defaults)) {
+    throw new Error('mergeDefaults: defaults must be a plain object');
+  }
+
+  const before = JSON.stringify(existing);
+  fillDefaults(existing, defaults);
+  const action = existed
+    ? (before === JSON.stringify(existing) ? 'unchanged' : 'updated')
+    : 'created';
+
+  if (!dryRun && action !== 'unchanged') {
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, `${JSON.stringify(existing, null, 2)}\n`);
+  }
+
+  return { path: filePath, action, dryRun };
+}
+
+function fillDefaults(target, defaults) {
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!(key in target) || target[key] === undefined) {
+      target[key] = isPlainObject(value) ? fillDefaults({}, value) : Array.isArray(value) ? [...value] : value;
+    } else if (isPlainObject(value) && isPlainObject(target[key])) {
+      fillDefaults(target[key], value);
+    }
+  }
+  return target;
+}
+
 // ── Markdown / text ───────────────────────────────────────────────────
 
 function mergeText(filePath, markerFence, content) {

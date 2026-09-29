@@ -6,7 +6,7 @@ import { log } from '../util/log.mjs';
 import { detect } from '../steps/detect.mjs';
 import { confirmOverwriteIfNeeded } from '../steps/confirm.mjs';
 import { interview, minimalInterview } from '../steps/interview.mjs';
-import { scaffold, summarize } from '../steps/scaffold.mjs';
+import { scaffold, summarize, actionSymbol } from '../steps/scaffold.mjs';
 import { skillDiscovery } from '../steps/skills.mjs';
 import { instructionGeneration } from '../steps/instructions.mjs';
 import { choosePlatform, chooseModels, resolveCodegraphDefault } from '../steps/platform.mjs';
@@ -140,7 +140,11 @@ export async function init(args) {
   const written = scaffold({ cwd, answers, args });
   if (args.dryRun) log.warn('--dry-run: no files written. Plan:');
   log.raw(summarize(written, cwd));
-  if (!args.dryRun) log.ok(`Wrote ${written.length} files.`);
+  if (!args.dryRun) {
+    const changed = written.filter((w) => w.written).length;
+    const untouched = written.length - changed;
+    log.ok(`Wrote ${changed} file${changed === 1 ? '' : 's'}${untouched ? ` (${untouched} unchanged)` : ''}.`);
+  }
 
   // 8. Skill discovery
   log.step('7/8 Skill discovery');
@@ -157,9 +161,13 @@ export async function init(args) {
     if (instrWritten && instrWritten.length > 0) {
       if (args.dryRun) log.warn('--dry-run: instruction plan:');
       for (const w of instrWritten) {
-        log.raw(`  ${w.written ? '+' : '~'} ${w.path.replace(cwd + '/', '')}`);
+        log.raw(`  ${actionSymbol(w)} ${w.path.replace(cwd + '/', '')}`);
       }
-      if (!args.dryRun) log.ok(`Wrote ${instrWritten.length} instruction file${instrWritten.length > 1 ? 's' : ''}.`);
+      if (!args.dryRun) {
+        const changed = instrWritten.filter((w) => w.written).length;
+        const untouched = instrWritten.length - changed;
+        log.ok(`Wrote ${changed} instruction file${changed === 1 ? '' : 's'}${untouched ? ` (${untouched} unchanged)` : ''}.`);
+      }
     }
   } else {
     log.dim('Skipped (minimal init). Enable with --instructions or --full-interview.');

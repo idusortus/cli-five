@@ -4,6 +4,7 @@ import { readTemplate, render, writeFile, listFilesRecursive, relTo, templatePat
 import { readFileSync } from 'node:fs';
 import { PLATFORM_COPILOT, PLATFORM_OPENCODE, agentDirFor, agentFileFor } from '../util/platforms.mjs';
 import { addCodegraphTo } from '../addons/codegraph.mjs';
+import { mergeDefaults } from '../util/merge.mjs';
 
 const AGENT_NAMES = ['orchestrator', 'planner', 'coder', 'designer', 'reviewer'];
 const HISTORY_FILES = ['orchestrator.md', 'planner.md', 'coder.md', 'designer.md', 'reviewer.md'];
@@ -44,10 +45,15 @@ export function scaffold({ cwd, answers, args }) {
     written.push(...scaffoldCopilot({ cwd, answers, args, vars }));
   }
 
-  // Shared memory primitives
+  // Shared memory primitives. These are user-owned once created — a re-run must
+  // not clobber local edits (STATE.md / PROJECT.md / histories are mutable
+  // per-session memory). policy 'create' writes them once and skips thereafter;
+  // --force restores the destructive overwrite for a deliberate reset.
+  //
   // NOTE: AGENTS.md is written WITHOUT the CodeGraph block here. When CodeGraph
   // is enabled, the block is merged in afterward by addCodegraphTo() — the same
   // code path `add codegraph` uses (one implementation, two entry points).
+  const userPolicy = args.force ? 'overwrite' : 'create';
   for (const tmpl of [
     'AGENTS.md.tmpl',
     'PROJECT.md.tmpl',
@@ -57,18 +63,23 @@ export function scaffold({ cwd, answers, args }) {
   ]) {
     const out = render(readTemplate(tmpl), vars);
     const target = tmpl.replace(/\.tmpl$/, '');
-    written.push(writeFile(join(cwd, target), out, args));
+    written.push(writeFile(join(cwd, target), out, { dryRun: args.dryRun, policy: userPolicy }));
   }
 
-  // Per-agent histories
+  // Per-agent histories — also user-owned memory.
   for (const file of HISTORY_FILES) {
-    written.push(writeFile(join(cwd, 'histories', file), readTemplate('histories', file), args));
+    written.push(
+      writeFile(join(cwd, 'histories', file), readTemplate('histories', file), {
+        dryRun: args.dryRun,
+        policy: userPolicy,
+      }),
+    );
   }
 
   // CodeGraph — delegated to the shared add codegraph implementation.
   if (answers.codegraph) {
     for (const t of addCodegraphTo({ cwd, platform, dryRun: args.dryRun })) {
-      written.push({ path: t.path, written: !args.dryRun && t.action !== 'unchanged' });
+      written.push({ path: t.path, action: t.action, written: !args.dryRun && t.action !== 'unchanged' });
     }
   }
 
@@ -119,9 +130,27 @@ function scaffoldOpenCode({ cwd, answers, args, vars }) {
     written.push(writeFile(join(cwd, '.opencode', 'agents', `${name}.md`), swapped, args));
   }
 
-  // opencode.json
+  // opencode.json — add-only merge so a re-run preserves user keys (mcp,
+  // plugins, permission, model overrides) instead of replacing the file.
+  // --force opts back into a wholesale replace. A malformed file is left
+  // untouched with a warning rather than crashing mid-scaffold.
   const opencodeConfig = buildOpencodeConfig({ answers, orchestratorModel });
-  written.push(writeFile(join(cwd, 'opencode.json'), JSON.stringify(opencodeConfig, null, 2) + '\n', args));
+  const opencodePath = join(cwd, 'opencode.json');
+  let cfg;
+  try {
+    cfg = args.force
+      ? writeFile(opencodePath, JSON.stringify(opencodeConfig, null, 2) + '\n', { dryRun: args.dryRun })
+      : mergeDefaults(opencodePath, opencodeConfig, { dryRun: args.dryRun });
+  } catch (err) {
+    log.warn(`Skipped opencode.json: ${err.message}`);
+    log.dim('Fix the file, then re-run to seed cli-five defaults.');
+    cfg = { path: opencodePath, action: 'skipped' };
+  }
+  written.push({
+    path: cfg.path,
+    action: cfg.action,
+    written: !args.dryRun && (cfg.action === 'created' || cfg.action === 'updated'),
+  });
 
   // Empty containers (still useful for OpenCode agents)
   written.push(
@@ -202,10 +231,18 @@ const PERSONA_BLOCK = `# Persona
 
 `;
 
+const ACTION_SYMBOL = { created: '+', updated: '~', unchanged: '=', skipped: '.' };
+
+/** Plan symbol for a write/merge result, with a legacy fallback on `written`. */
+export function actionSymbol(entry) {
+  if (entry.action) return ACTION_SYMBOL[entry.action] || '?';
+  return entry.written ? '+' : '~';
+}
+
 export function summarize(written, cwd) {
   const lines = [];
   for (const w of written) {
-    lines.push(`  ${w.written ? '+' : '~'} ${relTo(cwd, w.path)}`);
+    lines.push(`  ${actionSymbol(w)} ${relTo(cwd, w.path)}`);
   }
   return lines.join('\n');
 }
