@@ -20,16 +20,16 @@ description: '**WORKFLOW SKILL** — Create, update, review, fix, or debug VS Co
 
 ## Quick Reference
 
-Consult the reference docs for templates, domain examples, advanced frontmatter options, asset organization, anti-patterns, and creation checklists. If the references are not enough, load the official documentation links for each primitive.
+Consult the official documentation for each primitive for templates, advanced frontmatter options, asset organization, anti-patterns, and creation checklists.
 
-| Type | File | Location | Reference |
-|------|------|----------|-----------|
-| agent instructions | `copilot-instructions.md`, `AGENTS.md` | `.github/` or root | [Link](./references/agent-instructions.md) |
-| File Instructions | `*.instructions.md` | `.github/instructions/` | [Link](./references/instructions.md) |
-| Prompts | `*.prompt.md` | `.github/prompts/` | [Link](./references/prompts.md) |
-| Hooks | `*.json` | `.github/hooks/` | [Link](./references/hooks.md) |
-| Custom Agents | `*.agent.md` | `.github/agents/` | [Link](./references/agents.md) |
-| Skills | `SKILL.md` | `.github/skills/<name>/`, `.agents/skills/<name>/`, `.claude/skills/<name>/` | [Link](./references/skills.md) |
+| Type | File | Location |
+|------|------|----------|
+| agent instructions | `copilot-instructions.md`, `AGENTS.md` | `.github/` or root |
+| File Instructions | `*.instructions.md` | `.github/instructions/` |
+| Prompts | `*.prompt.md` | `.github/prompts/` |
+| Hooks | `*.json` | `.github/hooks/` |
+| Custom Agents | `*.agent.md` | `.github/agents/` |
+| Skills | `SKILL.md` | `.github/skills/<name>/`, `.agents/skills/<name>/`, `.claude/skills/<name>/` |
 
 **User-level**: `{{VSCODE_USER_PROMPTS_FOLDER}}/` (*.prompt.md, *.instructions.md, *.agent.md; not skills)
 Customizations roam with user's settings sync
@@ -72,7 +72,7 @@ After creating:
 
 **Skill vs Custom Agent?** Same capabilities for all steps → Skill. Need context isolation (subagent returns single output) or different tool restrictions per stage → Custom Agent.
 
-**Hooks vs Instructions?** Instructions *guide* agent behavior (non-deterministic). Hooks *enforce* behavior via shell commands at lifecycle events like `PreToolUse` or `PostToolUse` — they can block operations, require approval, or run formatters deterministically. See [hooks reference](./references/hooks.md).
+**Hooks vs Instructions?** Instructions *guide* agent behavior (non-deterministic). Hooks *enforce* behavior via shell commands at lifecycle events like `PreToolUse` or `PostToolUse` — they can block operations, require approval, or run formatters deterministically. See the hooks documentation.
 
 ## Common Pitfalls
 

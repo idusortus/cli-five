@@ -14,10 +14,7 @@ export function listAddonsCommand(args) {
   log.raw(kleur.bold().magenta('\ncli-five list-addons') + kleur.gray(`  ${cwd}`));
   log.raw('');
 
-  log.raw(`  ${kleur.gray(pad('ADD-ON', 12))} ${kleur.gray(pad('STATUS', 14))} ${kleur.gray(pad('ADD', 10))} ${kleur.gray('DETAIL')}`);
-  log.raw(`  ${'─'.repeat(12)} ${'─'.repeat(14)} ${'─'.repeat(10)} ${'─'.repeat(30)}`);
-
-  for (const addon of listAddons()) {
+  const rows = listAddons().map((addon) => {
     const signals = detectAddon(addon, cwd);
     const installed = signals.length > 0;
     const addable = typeof addon.run === 'function';
@@ -31,7 +28,16 @@ export function listAddonsCommand(args) {
       ? [addon.status || signals.join(', ')].filter(Boolean).join(' — ')
       : addon.note || addon.status || '';
 
-    const statusText = pad(statusLabel, 14);
+    return { addon, installed, addable, statusLabel, detail };
+  });
+
+  // Size the status column to the longest label so the DETAIL column stays aligned.
+  const statusWidth = Math.max(14, ...rows.map((r) => r.statusLabel.length));
+  log.raw(`  ${kleur.gray(pad('ADD-ON', 12))} ${kleur.gray(pad('STATUS', statusWidth))} ${kleur.gray(pad('ADD', 10))} ${kleur.gray('DETAIL')}`);
+  log.raw(`  ${'─'.repeat(12)} ${'─'.repeat(statusWidth)} ${'─'.repeat(10)} ${'─'.repeat(30)}`);
+
+  for (const { addon, installed, addable, statusLabel, detail } of rows) {
+    const statusText = pad(statusLabel, statusWidth);
     const status = installed ? kleur.green(statusText) : kleur.gray(statusText);
     const addableText = pad(addable ? 'available' : 'planned', 10);
     const addableColored = addable ? kleur.green(addableText) : kleur.yellow(addableText);

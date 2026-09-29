@@ -8,7 +8,7 @@ Use it when you would rather not run the CLI yourself, or when you want the inst
 checked against the repo's real state (platform, authenticated provider, collisions).
 
 Everything in the prompt below was verified against a fresh repository on
-`cli-five@0.2.18`: dry-run preview, install, agent registration, `doctor`, and a live
+`cli-five@0.2.25`: dry-run preview, install, agent registration, `doctor`, and a live
 Orchestrator → Planner delegation.
 
 ---

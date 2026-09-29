@@ -41,10 +41,6 @@ export function writeFile(targetPath, contents, { dryRun = false, policy = 'over
   return { written: true, action: exists ? 'updated' : 'created', path: targetPath };
 }
 
-export function fileExists(p) {
-  return existsSync(p);
-}
-
 /** Read a file as JSON, returning null when it is absent or unparseable. */
 export function readJsonFile(filePath) {
   if (!existsSync(filePath)) return null;

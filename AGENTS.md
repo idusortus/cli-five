@@ -9,7 +9,7 @@ and Copilot all read `AGENTS.md` per the [agents.md](https://agents.md) conventi
 Scaffold a working 5-agent AI team (GitHub Copilot or OpenCode) into any repo — idempotently.
 
 ## Stack
-Node + TypeScript, Node
+Node (ESM JavaScript), no build step
 
 ## Frameworks / Key Libraries
 None declared.

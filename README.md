@@ -40,7 +40,7 @@ gitignore STATE.md/agent-diary.md/histories/, and leave everything staged withou
 committing. Report what you verified.
 ```
 
-The full version — platform detection, provider/auth checks, collision preview, stop conditions, and what to report back — is in **[docs/INSTALL_PROMPT.md](docs/INSTALL_PROMPT.md)**. It is generic: use it in any repository, Copilot or OpenCode.
+The full version — platform detection, provider/auth checks, collision preview, stop conditions, and what to report back — is in **[docs/INSTALL_PROMPT.md](https://github.com/idusortus/cli-five/blob/main/docs/INSTALL_PROMPT.md)**. It is generic: use it in any repository, Copilot or OpenCode.
 
 ## Supported platforms
 
@@ -344,9 +344,9 @@ ELI5 → CLI5. Code Like I'm Five. Five agents. Get it? Yeah, it's a stretch. Bu
 
 ## Influences
 
-- [bradygaster/squad](https://github.com/bradygaster/squad) — see [docs/squad-review.md](docs/squad-review.md)
-- [burkeholland/ultralight](https://github.com/burkeholland/ultralight) — see [docs/ultralight-review.md](docs/ultralight-review.md)
-- [gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done) — see [docs/gsd-review.md](docs/gsd-review.md)
+- [bradygaster/squad](https://github.com/bradygaster/squad) — see [docs/squad-review.md](https://github.com/idusortus/cli-five/blob/main/docs/squad-review.md)
+- [burkeholland/ultralight](https://github.com/burkeholland/ultralight) — see [docs/ultralight-review.md](https://github.com/idusortus/cli-five/blob/main/docs/ultralight-review.md)
+- [gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done) — see [docs/gsd-review.md](https://github.com/idusortus/cli-five/blob/main/docs/gsd-review.md)
 
 ## Notes
 

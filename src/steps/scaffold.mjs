@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { log } from '../util/log.mjs';
-import { readTemplate, render, writeFile, listFilesRecursive, relTo, templatePath } from '../util/fs.mjs';
+import { readTemplate, render, writeFile, relTo, templatePath } from '../util/fs.mjs';
 import { readFileSync } from 'node:fs';
 import { PLATFORM_COPILOT, PLATFORM_OPENCODE } from '../util/platforms.mjs';
 import { addCodegraphTo } from '../addons/codegraph.mjs';
@@ -264,5 +264,3 @@ export function summarize(written, cwd) {
   }
   return lines.join('\n');
 }
-
-export { listFilesRecursive };
