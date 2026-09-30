@@ -31,7 +31,10 @@ test('registry lists codegraph, jev, and openspec as available with status objec
   // Must not be a bare boolean status — capability must be explicit.
   assert.equal(jev.capability, 'tier-routing only');
   assert.ok(/test-gate parked/.test(jev.status), 'jev status must mention the parked test-gate');
-  assert.ok(/2026-09-26/.test(jev.status), 'jev status must be dated');
+  assert.ok(/real Jev/.test(jev.status), 'jev status must describe the real-Jev path');
+  assert.ok(/local heuristic/.test(jev.status), 'jev status must describe the local fallback');
+  assert.ok(/https?:\/\//.test(jev.status), 'jev status must link the tracked test-gate issue');
+  assert.ok(!/jev-harness/.test(jev.status), 'obsolete jev-harness rationale must be gone');
 
   const openspec = getAddon('openspec');
   assert.equal(typeof openspec.run, 'function', 'openspec has a real runner');

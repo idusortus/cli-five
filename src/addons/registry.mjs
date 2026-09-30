@@ -34,7 +34,8 @@ export const ADDONS = {
   jev: {
     name: 'jev',
     label: 'Jev',
-    description: 'Tier-routing tool for the Planner (local heuristic; test-gate parked).',
+    description:
+      'Tier-routing tool for the Planner (real Jev when a credential resolves; local heuristic otherwise; test-gate parked).',
     // Not a bare boolean: jev ships tier-routing ONLY. The test-gate half is
     // parked because OpenCode plugin hooks don't fire under OpenChamber routing.
     available: true,

@@ -7,8 +7,8 @@ import { templatePath } from '../util/fs.mjs';
 import { detectPlatform } from '../util/platforms.mjs';
 
 export const JEVR_STATUS =
-  'local heuristic — jev-harness lacks a custom-criteria interface as of 2026-09-26';
-export const JEVR_TOOL = 'local_tier_heuristic';
+  'real Jev when a credential resolves (OpenCode Zen free model jev-1.13-free, or TypeSafe jev-1.13.0); local heuristic otherwise';
+export const JEVR_TOOL = 'tier_classifier';
 export const TEST_GATE_ISSUE = 'https://github.com/idusortus/cli-five/issues';
 
 const PLUGIN_REL = join('.opencode', 'plugin', 'jev-tier-router');
@@ -16,10 +16,11 @@ const PLUGIN_REL = join('.opencode', 'plugin', 'jev-tier-router');
 /**
  * `add jev` — tier-routing only.
  *
- * Ships a local tier-classification tool for the Planner. Does NOT wire the
+ * Ships a tier-classification tool for the Planner. Does NOT wire the
  * test-gate (parked: OpenCode plugin hooks don't fire under OpenChamber's
- * embedded-server routing) and does NOT call Jev (no custom-criteria
- * interface in jev-harness as of this release).
+ * embedded-server routing). The classifier uses real Jev when a credential is
+ * available (OpenCode Zen first, TypeSafe optional) and falls back to the local
+ * heuristic otherwise.
  */
 export async function runJev({ cwd }) {
   const platform = detectPlatform(cwd);
@@ -67,13 +68,13 @@ export async function runJev({ cwd }) {
 }
 
 function plannerInstruction() {
-  return `## Tier routing (local heuristic)
+  return `## Tier routing
 
 Before planning, call the \`${JEVR_TOOL}\` tool once with the task description.
 
 - If it returns \`confidence\` >= 0.6, use its \`tier\` (trivial | minor | major) as your planning depth.
 - If \`confidence\` < 0.6, or the tool is unavailable, use your own judgment and default to \`major\`.
-- This is a local heuristic, not a Jev call. Never block or fail a turn because the tool is unavailable.`;
+- The classifier is optional: it uses real Jev when a credential is available (Jev is free on OpenCode) and a local heuristic otherwise. Never block or fail a turn because the tool is unavailable.`;
 }
 
 function readPlugins(opencodePath) {

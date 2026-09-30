@@ -1,0 +1,24 @@
+# Tasks
+
+## 1. Hook registration
+
+- [x] 1.1 In `templates/opencode/plugin/jev-tier-router/index.js`, add a `registerSessionHooks(ctx)` step called from the plugin's `setup()`. It MUST no-op (and journal why) when `ctx.session?.hook` is not a function, and MUST wrap each registration in try/catch so a failure cannot break plugin load. Verify: a unit test with a fake `ctx` lacking `session` loads the plugin without throwing and records the "unavailable" journal line.
+- [x] 1.2 Register the `prompt` hook: classify the incoming prompt text once via the existing `classifyWithJev`, cache the result per session, retaining the last result only for session-less events, and journal a line per firing including `tier`, `confidence`, and `source`. It MUST NOT mutate `event.prompt.text`. Verify: a test with a captured hook captures the event, asserts the prompt text is unchanged after the hook resolves, and asserts the journal line.
+- [x] 1.3 Register the `context` hook: look up the cached result for the session and, when present, `event.system.push({ type: 'text', text })` with the tier, confidence, and source; journal a line per firing — including when no cached result exists, so "fired before classification" is distinguishable from "never fired" — and inject nothing in that case. Resolve a named session strictly from its own cache entry (the `last` fallback applies only when the event carries no session id), so concurrent sessions cannot receive each other's tier. Verify: a test drives both hooks in order and asserts the injected system text and the journal line; a test (context without a prior prompt) asserts the no-cache journal line and no push; a test proves session X does not receive session Y's classification.
+- [x] 1.4 Honour the `CLI_FIVE_JEVR_HOOKS=0` opt-out: when set, register no hooks and behave exactly as the tool-only path. Verify: a test asserts neither hook is registered and the tool path is unaffected.
+
+## 2. Tests
+
+- [x] 2.1 Cover fail-open inside the hook: a thrown/failed classification still yields the local heuristic's result and never rejects. Verify: a test with a failing `fetchImpl` asserts the cached result is `source: 'local_heuristic'` and the hook promise resolves.
+- [x] 2.2 Keep the existing suite green. Verify: `npm test` passes and `npm run lint` is clean.
+
+## 3. Docs
+
+- [x] 3.1 Add a short README note describing the deterministic hook path, the `CLI_FIVE_JEVR_HOOKS` switch, and that it is a spike whose outcome decides whether it becomes primary. Verify: the README section names the switch and the journal location.
+
+## 4. Verification and honest reporting
+
+- [x] 4.1 Route-verify in a real OpenCode session: scaffold a temp repo, exercise a prompt, and read the journal for hook lines. Verify: the transcript and the journal are captured, and the report states whether the hooks fired and whether injection reached the model. **Result:** hooks fired. `hooks: registered prompt hook` / `registered context hook`; `prompt fired` → `prompt classified … tier=trivial confidence=0.8 source=jev_api` → `context injected …`. The model both quoted the injected instruction and, on an architectural prompt, correctly reasoned from the injected `major` tier (journal shows `tier=major confidence=1 source=jev_api`). The async Jev call completed during admission (~1.5 s) before dispatch.
+- [x] 4.2 Report the OpenChamber caveat honestly: state whether the managed-server path was exercised, or only the private/standalone server, and do not generalise from one to the other. Verify: the completion report names which server was used. **Result:** all route verification used `opencode run --standalone` (a private server). The OpenChamber **managed** server was deliberately NOT driven — it would create visible sessions in the user's environment and needs their credentials — so hook behaviour there is unverified and is the one thing the tester's prompt exists to settle.
+- [x] 4.3 Record the outcome in `decisions.md` (keep the deterministic path as primary, or revert and record the platform limitation). Verify: an entry exists with Context/Choice/Trade-offs/Revisit.
+- [x] 4.4 Confirm no forbidden file changed and nothing was committed. Verify: `git status` lists only the plugin, `tests/jev.test.mjs`, `README.md`, `histories/*`, `decisions.md`, and the change's own files — with `codegraph.mjs`, `openspec.mjs`, and the test-gate untouched.

@@ -211,21 +211,31 @@ codegraph init
 
 ### Jev (`add jev`) — tier-routing only, OpenCode only
 
-`add jev` scaffolds an OpenCode plugin that adds a `local_tier_heuristic` tool. The Planner calls it once per task to classify the work as `trivial` / `minor` / `major`, then scales planning depth accordingly.
+`add jev` scaffolds an OpenCode plugin that adds a `tier_classifier` tool. The Planner calls it once per task to classify the work as `trivial` / `minor` / `major`, then scales planning depth accordingly.
 
-**Two things it deliberately does *not* do, stated plainly:**
+The classifier is **optional real Jev** with a local fallback:
 
-1. **It does not call Jev.** `jev-harness` 0.2.0's `route` subcommand exposes no custom-criteria interface — it emits its own fixed tier vocabulary (`deterministic` / `lightweight_system2` / `heavy_system2`) and returns a constant confidence (`0.88`) under its offline/mock engine, so it cannot be thresholded on. The shipped tool is therefore a **local heuristic**, truthfully named `local_tier_heuristic`. The swap point for real Jev wiring is marked in `templates/opencode/plugin/jev-tier-router/index.js` (`JEVR_SWAP_POINT`).
-2. **The test-gate is parked.** Gating Reviewer spawns via plugin interception (`tool.execute.before` / `permission.ask`) does not work: OpenCode plugin hooks do not fire under OpenChamber's embedded-server routing. Do not expect `add jev` to gate anything.
+- **With a credential, it calls real Jev (System One).** On OpenCode it uses the credential you already have and is **free**: set `OPENCODE_API_KEY`, or just be connected via `/connect` (the key is read from the OpenCode credential store at `$XDG_DATA_HOME/opencode/auth.json`, else `~/.local/share/opencode/auth.json`, provider `opencode-go`). It sends one `choice` question to `https://opencode.ai/zen/v1/systemone` with the default model `jev-1.13-free`.
+- **TypeSafe is the secondary provider.** With no OpenCode credential but `TYPESAFE_API_KEY` set, it posts to `https://api.typesafe.ai/v1/systemone` with the default model `jev-1.13.0`. (Jev via TypeSafe may be a paid key; the OpenCode free model is the no-extra-account path.)
+- **Override the model** for whichever provider is selected with `CLI_FIVE_JEVR_MODEL` (the free OpenCode tier is explicitly limited-time, so this moves the pin without a code change).
+- **No credential → the local heuristic, with zero network calls.** The tool then falls back to the local keyword/regex classifier, exactly as it did before the real path existed.
+
+The result contract is unchanged: `{ tier, confidence, rationale, available, source }`, where `source` is `jev_api` for a real call and `local_heuristic` otherwise. An optional diagnostic `note` may accompany a fallback (and is ignored by consumers).
+
+**It also deliberately does not gate anything.**
+
+1. **The test-gate is parked.** Gating Reviewer spawns via plugin interception (`tool.execute.before` / `permission.ask`) does not work: OpenCode plugin hooks do not fire under OpenChamber's embedded-server routing. Do not expect `add jev` to gate anything. See [the issue tracker](https://github.com/idusortus/cli-five/issues).
 
 `list-addons` reports each add-on's honest capability rather than a bare "installed":
 
 ```
 codegraph   installed (MCP registration + AGENTS.md instructions)   available   MCP registration + AGENTS.md instructions
-jev         installed (tier-routing only)                           available   local heuristic — …; test-gate parked — <issue link>
+jev         installed (tier-routing only)                           available   real Jev when a credential resolves (…); local heuristic otherwise; test-gate parked — <issue link>
 ```
 
-**Fail-open is non-negotiable.** If the classifier is unavailable, errors, or returns malformed output, the tool returns `available: false` with tier `major` (the expensive tier) and never throws. The Planner falls back to its own judgment. cli-five and the scaffolded agents behave identically whether the plugin works, is missing, or is broken.
+**Fail-open is non-negotiable.** A missing credential makes **zero** network calls. When a credential is present but the call fails for any reason — 401 / 422 / 429 / 529, a network error, a timeout, or a malformed response — the tool falls back to the **local heuristic's own** `tier` and `confidence` (never a bare `major`), attaches a note reminding you that Jev is available, and never throws. Only an unexpected internal error that prevents even the local heuristic reports `available: false`. cli-five and the scaffolded agents behave identically whether the plugin works, is missing, or is broken.
+
+**Session-hook spike (deterministic path).** The plugin also registers OpenCode V2 **session hooks** (`ctx.session.hook('prompt', …)` and `ctx.session.hook('context', …)`) that classify the incoming prompt once at admission and inject the resulting tier as a **system instruction** — the user's prompt text is never rewritten, and no tool call is required. The path is **on by default** and disabled with **`CLI_FIVE_JEVR_HOOKS=0`**; it is inert (no throw, no behaviour change) on hosts without the session-hook surface. Every hook firing and every registration outcome is appended to the jev journal at **`.opencode/journals/jev-tier-router.log`**, so "did the hooks fire?" is answerable from the log alone. This is a **spike**: whether V2 session hooks fire under OpenChamber's managed server is the open question, and the keep-or-revert outcome is pending the spike result. The `tier_classifier` tool stays as the fallback (and the A/B control).
 
 **Copilot has no equivalent.** `add jev` refuses cleanly on a Copilot target (exit 1, no files written) — there is no `tools.add`-style surface there.
 
