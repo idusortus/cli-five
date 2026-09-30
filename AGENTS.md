@@ -24,3 +24,16 @@ None declared.
 4. Per-agent memory lives in `histories/<agent>.md`.
 5. Append a session summary to `agent-diary.md` when work completes.
 
+<!-- CODEGRAPH_START -->
+## CodeGraph
+
+This project is configured to use [CodeGraph](https://codegraph.ru) for graph-backed codebase context.
+When you need to understand relationships, call paths, or impacts, use:
+
+```
+codegraph explore "<your question>"
+```
+
+The CodeGraph MCP server is registered in the project config. Run `codegraph init` in this directory
+if the project has not been indexed yet.
+<!-- CODEGRAPH_END -->

@@ -12,6 +12,12 @@
 
 ---
 
+## 2026-09-30 — Commit add-on artifacts; gitignore the generated CodeGraph index
+**Context:** Installing the `codegraph` and `openspec` add-ons into cli-five's own repo produced tracked config changes (`AGENTS.md`, `opencode.json`) plus new OpenSpec-owned surfaces (`openspec/`, `.opencode/commands/`, `.opencode/skills/`) and, after `codegraph init`, a generated `.codegraph/` index.
+**Choice:** Version-control the add-on artifacts (`openspec/` config/changes/specs and the `.opencode/commands|skills` surfaces), consistent with the already-tracked `.opencode/agents/`; add `.codegraph/` to `.gitignore` and never commit it.
+**Trade-offs:** Committing the OpenSpec surfaces means they can drift from a user's globally installed OpenSpec version (refresh with `openspec update --force`); excluding `.codegraph/` means each checkout must run `codegraph init` locally before `codegraph explore` works.
+**Revisit:** If CodeGraph ships a portable/CI-buildable index meant to be shared, or if OpenSpec surface churn becomes noisy in diffs.
+
 ## 2026-09-27 — Keep the `--target` default as `copilot`
 **Context:** An external review flagged the `copilot` default as an unassigned "flip the default" item. We had to choose: flip to `opencode`, require an explicit `--target` with `--yes`, or keep the status quo.
 **Choice:** Keep `copilot` as the default for `--yes`/non-interactive runs (the `--yes` branch of `choosePlatform` in `src/steps/platform.mjs`, `src/commands/init.mjs:207`). Both platforms remain fully installable and documented — verified with dry-run scaffolds for `--target copilot` and `--target opencode` (exit 0), Copilot plugin install at `README.md:25`, OpenCode config at `README.md:92`/`276`.

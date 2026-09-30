@@ -8,3 +8,6 @@ node_modules/
 
 # Generated npm smoke/test logs
 .ai_*.log
+
+# CodeGraph generated index (rebuilt locally with `codegraph init`)
+.codegraph/
