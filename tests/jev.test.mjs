@@ -17,6 +17,7 @@ const {
   classifyTaskWithJev,
   classifyWithJev,
   registerSessionHooks,
+  safeErrText,
 } = pluginTestables;
 
 const PLUGIN_FILE = new URL('../templates/opencode/plugin/jev-tier-router/index.js', import.meta.url);
@@ -758,6 +759,436 @@ test('hooks: an async-rejected registration is journaled and does not surface un
     process.off('unhandledRejection', onUnhandled);
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── Session hooks: forced-failure fail-open regressions ───────────────
+//
+// These tests drive the REAL handlers captured from registerSessionHooks and
+// assert that a hostile or broken input can never reject/mutate a host hook.
+// A root-session `prompt` failure is FATAL to the session; fail-open is a hard
+// requirement.
+
+// An object that throws whenever the host tries to coerce it to a string
+// (`String(x)`, which calls `Symbol.toPrimitive` with hint "string").
+function hostileCoercion(message = 'hostile coercion') {
+  return {
+    [Symbol.toPrimitive]() {
+      throw new Error(message);
+    },
+  };
+}
+
+test('hooks(a): prompt resolves when fetchImpl throws (classification fails internally)', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, {
+    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    fetchImpl: async () => {
+      throw new TypeError('fetch failed');
+    },
+  });
+
+  const event = { sessionID: 'a1', prompt: { text: 'fix a typo in README' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.equal(event.prompt.text, 'fix a typo in README', 'the prompt must be untouched');
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt'], 'the event must not gain keys');
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: prompt classified session=a1 .* source=local_heuristic/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(a2): prompt resolves when classifyWithJev throws outright', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  // registerSessionHooks reads opts.env; the fetchImpl accessor throws so the
+  // otherwise-guarded attemptJev (and thus classifyWithJev) throws before its
+  // own try, proving the hook's catch is the last line of defence.
+  registerSessionHooks(ctx, {
+    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    get fetchImpl() {
+      throw new Error('fetchImpl getter exploded');
+    },
+  });
+
+  const event = { sessionID: 'a2', prompt: { text: 'fix a typo in README' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.equal(event.prompt.text, 'fix a typo in README');
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+  assert.match(readFileSync(logFile, 'utf8'), /prompt classification error session=a2: fetchImpl getter exploded/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(b): prompt resolves when fetchImpl rejects', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, {
+    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    fetchImpl: async () => Promise.reject(new Error('network down')),
+  });
+
+  const event = { sessionID: 'b1', prompt: { text: 'add input validation' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(c): prompt resolves when fetchImpl hangs past the timeout', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  const fetchImpl = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        reject(err);
+      });
+    });
+  registerSessionHooks(ctx, {
+    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    fetchImpl,
+    timeoutMs: 10,
+  });
+
+  const event = { sessionID: 'c1', prompt: { text: 'fix a typo' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(d1): prompt resolves on a non-JSON response body', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, {
+    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        throw new SyntaxError('not json');
+      },
+    }),
+  });
+
+  const event = { sessionID: 'd1', prompt: { text: 'fix a typo' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(d2): prompt resolves on a JSON body with the wrong shape', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, {
+    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { answers: { tier: { type: 'score', value: 3 } } };
+      },
+    }),
+  });
+
+  const event = { sessionID: 'd2', prompt: { text: 'fix a typo' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(e): an unwritable journal target never throws', async () => {
+  const dir = workspace();
+  // A FILE where journal() wants a directory: mkdirSync of its parent fails.
+  const blocker = join(dir, 'blocker');
+  writeFileSync(blocker, 'i am a file\n');
+  const logFile = join(blocker, 'jev.log'); // parent is a file, not a dir
+
+  const { ctx, captured } = captureSessionHooks();
+  assert.doesNotThrow(() =>
+    registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }),
+  );
+  assert.equal(typeof captured.prompt, 'function');
+  assert.equal(typeof captured.context, 'function');
+
+  const event = { sessionID: 'e1', prompt: { text: 'fix a typo in README' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.doesNotThrow(() => captured.context({ sessionID: 'e1', system: [] }));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(f): prompt tolerates missing/odd event fields', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  for (const event of [undefined, {}, { prompt: null }, { prompt: { text: null } }]) {
+    await assert.doesNotReject(() => captured.prompt(event), `prompt must not reject for ${JSON.stringify(event)}`);
+  }
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(f2): context tolerates missing/odd event fields', () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  for (const event of [undefined, {}, { system: null }, { system: 'nope' }]) {
+    assert.doesNotThrow(() => captured.context(event), `context must not throw for ${JSON.stringify(event)}`);
+  }
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(g1): prompt fail-opens on a hostile sessionID coercion', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  const event = { sessionID: hostileCoercion('sessionID boomed'), prompt: { text: 'fix a typo' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: prompt hook fail-open: sessionID boomed/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(g2): prompt fail-opens on a hostile prompt.text coercion', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  const event = { sessionID: 'g2', prompt: { text: hostileCoercion('prompt text boomed') } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: prompt hook fail-open: prompt text boomed/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(g3): context fail-opens on a hostile sessionID coercion', () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  const event = { sessionID: hostileCoercion('context sessionID boomed'), system: [] };
+  assert.doesNotThrow(() => captured.context(event));
+  assert.equal(event.system.length, 0, 'nothing may be injected when coercion fails');
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: context hook fail-open: context sessionID boomed/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(g4): a plain Symbol sessionID is String()-safe (documents non-throw)', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  const event = { sessionID: Symbol('x'), prompt: { text: 'fix a typo' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.equal(typeof event.sessionID, 'symbol', 'the Symbol must be untouched');
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: prompt fired session=Symbol\(x\)/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(h): context fail-opens when event.system is frozen', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  await captured.prompt({ sessionID: 'h1', prompt: { text: 'fix a typo in README' } });
+
+  const frozen = Object.freeze([]);
+  const event = { sessionID: 'h1', system: frozen };
+  assert.doesNotThrow(() => captured.context(event));
+  assert.equal(event.system.length, 0, 'a frozen array must not be mutated');
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: context hook fail-open:/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(i): registerSessionHooks survives a thenable with a throwing then getter', () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const ctx = {
+    session: {
+      hook: () => ({
+        get then() {
+          throw new Error('then getter exploded');
+        },
+      }),
+    },
+  };
+
+  assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }));
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: failed to register prompt hook: then getter exploded/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(j): a rejecting ctx.session.get is never called; hooks still register and load', async () => {
+  const dir = workspace();
+  let getCalls = 0;
+  const captured = {};
+  const ctx = {
+    session: {
+      hook: (name, fn) => { captured[name] = fn; },
+      get: () => {
+        getCalls += 1;
+        return Promise.reject(new Error('session.get must not be used'));
+      },
+    },
+    tool: { transform: async (fn) => fn({ add: () => {} }) },
+  };
+
+  await assert.doesNotReject(() => withDefaultJournal(() => plugin.setup(ctx)));
+  assert.equal(getCalls, 0, 'the plugin must not depend on ctx.session.get');
+  assert.equal(typeof captured.prompt, 'function', 'the prompt hook must still register');
+  assert.equal(typeof captured.context, 'function', 'the context hook must still register');
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ── Session hooks: hostile caught-value fail-open (catch bodies) ──────
+//
+// A catch block that formats the caught value unguardedly can itself throw.
+// These tests throw a NON-Error whose own `.message` getter throws, so the
+// fix must format it through a sink that cannot throw.
+
+// A thrown non-Error whose `.message` getter throws when read.
+function hostileThrown() {
+  return {
+    get message() {
+      throw new Error('message getter boomed');
+    },
+  };
+}
+
+// A value that throws `thrown` whenever the host coerces it with String().
+function throwsValue(thrown) {
+  return {
+    [Symbol.toPrimitive]() {
+      throw thrown;
+    },
+  };
+}
+
+test('hooks(k1): prompt resolves when the caught value has a throwing message getter (sessionID)', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  const event = { sessionID: throwsValue(hostileThrown()), prompt: { text: 'x' } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt'], 'the event must be untouched');
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: prompt hook fail-open: unknown error/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(k2): prompt resolves when the caught value has a throwing message getter (prompt.text)', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  const event = { sessionID: 'k2', prompt: { text: throwsValue(hostileThrown()) } };
+  await assert.doesNotReject(() => captured.prompt(event));
+  assert.deepEqual(Object.keys(event), ['sessionID', 'prompt']);
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: prompt hook fail-open: unknown error/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(k3): context does not throw when the caught value has a throwing message getter', () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  const event = { sessionID: throwsValue(hostileThrown()), system: [] };
+  assert.doesNotThrow(() => captured.context(event));
+  assert.equal(event.system.length, 0, 'nothing may be injected');
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: context hook fail-open: unknown error/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(l1): a sync registration throw of a hostile value is journaled, never thrown', () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const ctx = { session: { hook: () => { throw hostileThrown(); } } };
+
+  assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }));
+  assert.match(readFileSync(logFile, 'utf8'), /hooks: failed to register prompt hook: unknown error/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks(l2): an async rejection of a hostile value yields no unhandled rejection', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  let unhandled = null;
+  const onUnhandled = (reason) => { unhandled = reason; };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const ctx = {
+      session: {
+        hook: (name) => (name === 'context' ? Promise.reject(hostileThrown()) : Promise.resolve()),
+      },
+    };
+
+    assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(unhandled, null, 'a hostile rejection value must not become an unhandled rejection');
+    assert.match(readFileSync(logFile, 'utf8'), /hooks: failed to register context hook: unknown error/);
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hooks(m): setup resolves when ctx.session.hook is a getter that throws a hostile value', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const previous = process.env.CLI_FIVE_LOGFILE;
+  process.env.CLI_FIVE_LOGFILE = logFile;
+  try {
+    const ctx = { session: { get hook() { throw hostileThrown(); } } };
+    await assert.doesNotReject(() => plugin.setup(ctx));
+  } finally {
+    if (previous === undefined) delete process.env.CLI_FIVE_LOGFILE;
+    else process.env.CLI_FIVE_LOGFILE = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('safeErrText: never throws and falls back for hostile values', () => {
+  assert.equal(safeErrText(new Error('boom')), 'boom');
+  assert.equal(safeErrText('plain string'), 'plain string');
+  assert.equal(safeErrText(null), 'null');
+  assert.equal(safeErrText(undefined), 'undefined');
+  assert.equal(safeErrText(hostileThrown()), 'unknown error');
+  assert.equal(safeErrText({ toString() { throw new Error('toString boomed'); } }), 'unknown error');
 });
 
 // ── add jev (OpenCode target) ─────────────────────────────────────────

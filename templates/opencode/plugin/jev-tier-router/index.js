@@ -302,11 +302,15 @@ async function attemptJev(description, cred, opts = {}) {
       },
     };
   } catch (err) {
-    return {
-      ok: false,
-      kind: err?.name === 'AbortError' ? 'timeout' : 'network_error',
-      provider: cred.provider,
-    };
+    // Reading `.name` can itself throw on a hostile rejection value; keep the
+    // whole catch non-throwing so a failed attempt always degrades to a result.
+    let kind = 'network_error';
+    try {
+      if (err?.name === 'AbortError') kind = 'timeout';
+    } catch {
+      /* unknown rejection value — treat as a network error */
+    }
+    return { ok: false, kind, provider: cred.provider };
   } finally {
     clearTimeout(timer);
   }
@@ -323,6 +327,22 @@ function journal(message, opts = {}) {
     appendFileSync(file, `${new Date().toISOString()} tier_classifier ${message}\n`);
   } catch {
     /* logging is best-effort */
+  }
+}
+
+/**
+ * Format a caught value for a journal line without ever throwing itself.
+ *
+ * A host can throw a non-Error whose `.message` getter throws, or an object
+ * whose stringification throws. Formatting such a value inside a catch block
+ * would make the catch rethrow, defeating fail-open. This is the only safe way
+ * to turn a caught value into text; it is itself unable to throw.
+ */
+export function safeErrText(err) {
+  try {
+    return err?.message || String(err);
+  } catch {
+    return 'unknown error';
   }
 }
 
@@ -413,94 +433,137 @@ const HOOKS_OPT_OUT_ENV = 'CLI_FIVE_JEVR_HOOKS';
  * Register the deterministic session hooks, defensively.
  *
  * No-ops (and journals why) when the host has no session hook surface or when
- * CLI_FIVE_JEVR_HOOKS=0. Each registration is wrapped in its own try/catch so a
- * rejected registration cannot break plugin load. Never throws.
+ * CLI_FIVE_JEVR_HOOKS=0. Every read of the host surface and every registration
+ * is guarded, so this function cannot throw even if `ctx`/`opts` are hostile
+ * objects with throwing getters. Never throws.
  */
 export function registerSessionHooks(ctx, opts = {}) {
-  const env = opts.env ?? process.env;
+  try {
+    const env = opts.env ?? process.env;
 
-  if (typeof ctx?.session?.hook !== 'function') {
-    journal('hooks: session hook surface unavailable (ctx.session.hook is not a function); deterministic routing off.', opts);
-    return;
-  }
-
-  if (env[HOOKS_OPT_OUT_ENV] === '0') {
-    journal(`hooks: disabled by ${HOOKS_OPT_OUT_ENV}=0; registering no session hooks.`, opts);
-    return;
-  }
-
-  // Per-registration cache so each load (and each test) is isolated from the
-  // next. `last` is the fallback ONLY when a `context` event carries no session
-  // id at all; a named session resolves strictly from its own entry, so
-  // concurrent sessions cannot bleed each other's tier.
-  const cache = new Map();
-  let last = null;
-
-  const register = (name, handler) => {
-    let outcome;
+    let hasHook = false;
     try {
-      outcome = ctx.session.hook(name, handler);
+      hasHook = typeof ctx?.session?.hook === 'function';
     } catch (err) {
-      journal(`hooks: failed to register ${name} hook: ${err?.message || err}`, opts);
+      journal(`hooks: session hook surface unavailable (reading ctx.session.hook threw: ${safeErrText(err)}); deterministic routing off.`, opts);
       return;
     }
 
-    // A host may return a promise instead of throwing; settle it so an async
-    // rejection is journaled rather than surfacing as an unhandled rejection.
-    if (outcome && typeof outcome.then === 'function') {
-      Promise.resolve(outcome).then(
-        () => journal(`hooks: registered ${name} hook.`, opts),
-        (err) => journal(`hooks: failed to register ${name} hook: ${err?.message || err}`, opts),
-      );
+    if (!hasHook) {
+      journal('hooks: session hook surface unavailable (ctx.session.hook is not a function); deterministic routing off.', opts);
       return;
     }
 
-    journal(`hooks: registered ${name} hook.`, opts);
-  };
-
-  register('prompt', async (event) => {
-    const session = String(event?.sessionID ?? 'current');
-    const text = String(event?.prompt?.text ?? '');
-    journal(`hooks: prompt fired session=${session} chars=${text.length}`, opts);
-
-    try {
-      const result = await classifyWithJev(text, opts);
-      cache.set(session, result);
-      last = result;
-      journal(`hooks: prompt classified session=${session} tier=${result.tier} confidence=${result.confidence} source=${result.source}`, opts);
-    } catch (err) {
-      // classifyWithJev is fail-open, but never let the admission hook reject.
-      const result = classifyTask(text);
-      cache.set(session, result);
-      last = result;
-      journal(`hooks: prompt classification error session=${session}: ${err?.message || err}; using local heuristic.`, opts);
-    }
-  });
-
-  register('context', (event) => {
-    const sessionID = event?.sessionID;
-    const hasSession = sessionID !== undefined && sessionID !== null;
-    const session = String(sessionID ?? 'current');
-    // A named session resolves strictly from its own cache entry; the cross-
-    // session `last` fallback applies only when the event carries no session id.
-    const result = hasSession ? cache.get(session) : last;
-
-    if (!result) {
-      journal(`hooks: context fired session=${session} but no cached classification; no injection.`, opts);
+    if (env[HOOKS_OPT_OUT_ENV] === '0') {
+      journal(`hooks: disabled by ${HOOKS_OPT_OUT_ENV}=0; registering no session hooks.`, opts);
       return;
     }
 
-    if (!Array.isArray(event?.system)) {
-      journal(`hooks: context fired session=${session} but event.system is not an array; no injection.`, opts);
-      return;
-    }
+    // Per-registration cache so each load (and each test) is isolated from the
+    // next. `last` is the fallback ONLY when a `context` event carries no session
+    // id at all; a named session resolves strictly from its own entry, so
+    // concurrent sessions cannot bleed each other's tier.
+    const cache = new Map();
+    let last = null;
 
-    event.system.push({
-      type: 'text',
-      text: `Jev tier routing: plan at "${result.tier}" depth (confidence ${result.confidence}, source ${result.source}).`,
+    const register = (name, handler) => {
+      let outcome;
+      try {
+        // Called as a method so a host that relies on `this` still works.
+        outcome = ctx.session.hook(name, handler);
+      } catch (err) {
+        journal(`hooks: failed to register ${name} hook: ${safeErrText(err)}`, opts);
+        return;
+      }
+
+      // Reading `.then` can itself throw (a hostile thenable). Treat that as a
+      // failed registration rather than letting it reject plugin load.
+      let isThenable = false;
+      try {
+        isThenable = Boolean(outcome) && typeof outcome.then === 'function';
+      } catch (err) {
+        journal(`hooks: failed to register ${name} hook: ${safeErrText(err)}`, opts);
+        return;
+      }
+
+      // A host may return a promise instead of throwing; settle it so an async
+      // rejection is journaled rather than surfacing as an unhandled rejection.
+      // Only safeErrText formats the caught value, so a hostile rejection value
+      // cannot make this handler throw.
+      if (isThenable) {
+        Promise.resolve(outcome).then(
+          () => journal(`hooks: registered ${name} hook.`, opts),
+          (err) => journal(`hooks: failed to register ${name} hook: ${safeErrText(err)}`, opts),
+        );
+        return;
+      }
+
+      journal(`hooks: registered ${name} hook.`, opts);
+    };
+
+    // The ENTIRE handler body is inside the try: even coercing a hostile
+    // `sessionID`/`prompt.text` (a throwing `Symbol.toPrimitive`) must fail
+    // open, because a root-session `prompt` rejection is fatal to the turn.
+    // The catch formats the caught value only through safeErrText, so a hostile
+    // thrown value cannot make the catch itself rethrow.
+    register('prompt', async (event) => {
+      try {
+        const session = String(event?.sessionID ?? 'current');
+        const text = String(event?.prompt?.text ?? '');
+        journal(`hooks: prompt fired session=${session} chars=${text.length}`, opts);
+
+        try {
+          const result = await classifyWithJev(text, opts);
+          cache.set(session, result);
+          last = result;
+          journal(`hooks: prompt classified session=${session} tier=${result.tier} confidence=${result.confidence} source=${result.source}`, opts);
+        } catch (err) {
+          // classifyWithJev is fail-open, but never let the admission hook reject.
+          const result = classifyTask(text);
+          cache.set(session, result);
+          last = result;
+          journal(`hooks: prompt classification error session=${session}: ${safeErrText(err)}; using local heuristic.`, opts);
+        }
+      } catch (err) {
+        // Hostile coercion or an unexpected failure: journal once, touch nothing.
+        journal(`hooks: prompt hook fail-open: ${safeErrText(err)}`, opts);
+      }
     });
-    journal(`hooks: context injected session=${session} tier=${result.tier} confidence=${result.confidence} source=${result.source}`, opts);
-  });
+
+    // Synchronous, and the whole body is guarded so a hostile `sessionID` or a
+    // frozen `event.system` (push throws) cannot surface into the host session.
+    register('context', (event) => {
+      try {
+        const sessionID = event?.sessionID;
+        const hasSession = sessionID !== undefined && sessionID !== null;
+        const session = String(sessionID ?? 'current');
+        // A named session resolves strictly from its own cache entry; the cross-
+        // session `last` fallback applies only when the event carries no session id.
+        const result = hasSession ? cache.get(session) : last;
+
+        if (!result) {
+          journal(`hooks: context fired session=${session} but no cached classification; no injection.`, opts);
+          return;
+        }
+
+        if (!Array.isArray(event?.system)) {
+          journal(`hooks: context fired session=${session} but event.system is not an array; no injection.`, opts);
+          return;
+        }
+
+        event.system.push({
+          type: 'text',
+          text: `Jev tier routing: plan at "${result.tier}" depth (confidence ${result.confidence}, source ${result.source}).`,
+        });
+        journal(`hooks: context injected session=${session} tier=${result.tier} confidence=${result.confidence} source=${result.source}`, opts);
+      } catch (err) {
+        journal(`hooks: context hook fail-open: ${safeErrText(err)}`, opts);
+      }
+    });
+  } catch (err) {
+    // Last-resort boundary guard: this function must be unable to throw.
+    journal(`hooks: registration failed open: ${safeErrText(err)}`, opts);
+  }
 }
 
 export const __testables = {
@@ -511,6 +574,7 @@ export const __testables = {
   classifyTaskWithJev,
   classifyWithJev,
   registerSessionHooks,
+  safeErrText,
   attemptJev,
   parseAnswer,
   buildRequest,
@@ -524,50 +588,57 @@ export const __testables = {
 
 export default {
   id: 'cli-five-jev-tier-router',
+  // Load-level fail-open: a hostile `ctx`, a throwing surface getter, or a
+  // failing tool registration must never reject plugin load. registerSessionHooks
+  // is itself non-throwing; the surrounding guard covers the tool surface too.
   setup: async (ctx) => {
-    // Deterministic path first; it guards itself so it runs even when the tool
-    // surface is absent.
-    registerSessionHooks(ctx);
+    try {
+      // Deterministic path first; it guards itself so it runs even when the
+      // tool surface is absent.
+      registerSessionHooks(ctx);
 
-    if (!ctx || !ctx.tool || typeof ctx.tool.transform !== 'function') return;
+      if (!ctx || !ctx.tool || typeof ctx.tool.transform !== 'function') return;
 
-    await ctx.tool.transform((tools) => {
-      tools.add({
-        name: 'tier_classifier',
-        description:
-          'Classify a task description into cli-five\'s tier vocabulary (trivial | minor | major). ' +
-          'Call this once per task, before planning. Trust the returned tier when confidence >= 0.6; otherwise fall back to "major". ' +
-          'Uses real Jev when a credential is available and a local heuristic otherwise; the result\'s `source` reports which path answered.',
-        input: {
-          type: 'object',
-          properties: {
-            description: {
-              type: 'string',
-              description: 'The task to classify, verbatim (the user request or planning prompt).',
+      await ctx.tool.transform((tools) => {
+        tools.add({
+          name: 'tier_classifier',
+          description:
+            'Classify a task description into cli-five\'s tier vocabulary (trivial | minor | major). ' +
+            'Call this once per task, before planning. Trust the returned tier when confidence >= 0.6; otherwise fall back to "major". ' +
+            'Uses real Jev when a credential is available and a local heuristic otherwise; the result\'s `source` reports which path answered.',
+          input: {
+            type: 'object',
+            properties: {
+              description: {
+                type: 'string',
+                description: 'The task to classify, verbatim (the user request or planning prompt).',
+              },
             },
+            required: ['description'],
+            additionalProperties: false,
           },
-          required: ['description'],
-          additionalProperties: false,
-        },
-        async execute(input, opts) {
-          try {
-            const result = await classifyWithJev(input?.description, opts);
-            return { content: JSON.stringify(result) };
-          } catch (err) {
-            // Fail-open: never break the caller's turn.
-            journal(`fail-open: ${err?.message || err}`, opts);
-            return {
-              content: JSON.stringify({
-                tier: FALLBACK_TIER,
-                confidence: 0,
-                rationale: 'Tier classifier unavailable; defaulting to the expensive tier.',
-                available: false,
-                source: 'local_heuristic',
-              }),
-            };
-          }
-        },
+          async execute(input, opts) {
+            try {
+              const result = await classifyWithJev(input?.description, opts);
+              return { content: JSON.stringify(result) };
+            } catch (err) {
+              // Fail-open: never break the caller's turn.
+              journal(`fail-open: ${safeErrText(err)}`, opts);
+              return {
+                content: JSON.stringify({
+                  tier: FALLBACK_TIER,
+                  confidence: 0,
+                  rationale: 'Tier classifier unavailable; defaulting to the expensive tier.',
+                  available: false,
+                  source: 'local_heuristic',
+                }),
+              };
+            }
+          },
+        });
       });
-    });
+    } catch (err) {
+      journal(`plugin setup fail-open: ${safeErrText(err)}`);
+    }
   },
 };
