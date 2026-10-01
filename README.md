@@ -184,7 +184,7 @@ Optional integrations live outside the default scaffold and are installed with `
 ```bash
 npx cli-five add             # list known targets
 npx cli-five add codegraph   # CodeGraph MCP registration + AGENTS.md instructions
-npx cli-five add jev         # tier-routing tool for the Planner (OpenCode only)
+npx cli-five add jev         # tier routing for the Planner + opt-in Reviewer-spawn gate (OpenCode only)
 npx cli-five add openspec    # drive the OpenSpec CLI: openspec/ + editor commands + skills
 npx cli-five list-addons     # installed vs. available status
 ```
@@ -209,7 +209,7 @@ npm i -g @colbymchenry/codegraph
 codegraph init
 ```
 
-### Jev (`add jev`) — tier-routing only, OpenCode only
+### Jev (`add jev`) — tier routing + opt-in spawn gate, OpenCode only
 
 `add jev` scaffolds an OpenCode plugin that adds a `tier_classifier` tool. The Planner calls it once per task to classify the work as `trivial` / `minor` / `major`, then scales planning depth accordingly.
 
@@ -222,20 +222,49 @@ The classifier is **optional real Jev** with a local fallback:
 
 The result contract is unchanged: `{ tier, confidence, rationale, available, source }`, where `source` is `jev_api` for a real call and `local_heuristic` otherwise. An optional diagnostic `note` may accompany a fallback (and is ignored by consumers).
 
-**It also deliberately does not gate anything.**
+**It gates nothing by default.**
 
-1. **The test-gate is parked.** Gating Reviewer spawns via plugin interception (`tool.execute.before` / `permission.ask`) does not work: OpenCode plugin hooks do not fire under OpenChamber's embedded-server routing. Do not expect `add jev` to gate anything. See [the issue tracker](https://github.com/idusortus/cli-five/issues).
+1. **The test-gate is parked.** The original test-gate design (gating Reviewer spawns via `tool.execute.before` / `permission.ask`) does not work: those V1 tool-interception hooks do not fire. The V2 permission `evaluate` hook does — see the opt-in spawn gate below — but it is off unless you turn it on. See [the issue tracker](https://github.com/idusortus/cli-five/issues).
 
 `list-addons` reports each add-on's honest capability rather than a bare "installed":
 
 ```
 codegraph   installed (MCP registration + AGENTS.md instructions)   available   MCP registration + AGENTS.md instructions
-jev         installed (tier-routing only)                           available   real Jev when a credential resolves (…); local heuristic otherwise; test-gate parked — <issue link>
+jev         installed (tier routing + opt-in spawn gate)            available   real Jev when a credential resolves (…); local heuristic otherwise; opt-in spawn gate off by default; test-gate parked — <issue link>
 ```
 
 **Fail-open is non-negotiable.** A missing credential makes **zero** network calls. When a credential is present but the call fails for any reason — 401 / 422 / 429 / 529, a network error, a timeout, or a malformed response — the tool falls back to the **local heuristic's own** `tier` and `confidence` (never a bare `major`), attaches a note reminding you that Jev is available, and never throws. Only an unexpected internal error that prevents even the local heuristic reports `available: false`. cli-five and the scaffolded agents behave identically whether the plugin works, is missing, or is broken.
 
-**Session-hook spike (deterministic path).** The plugin also registers OpenCode V2 **session hooks** (`ctx.session.hook('prompt', …)` and `ctx.session.hook('context', …)`) that classify the incoming prompt once at admission and inject the resulting tier as a **system instruction** — the user's prompt text is never rewritten, and no tool call is required. The path is **on by default** and disabled with **`CLI_FIVE_JEVR_HOOKS=0`**; it is inert (no throw, no behaviour change) on hosts without the session-hook surface. Every hook firing and every registration outcome is appended to the jev journal at **`.opencode/journals/jev-tier-router.log`**, so "did the hooks fire?" is answerable from the log alone. This is a **spike**: whether V2 session hooks fire under OpenChamber's managed server is the open question, and the keep-or-revert outcome is pending the spike result. The `tier_classifier` tool stays as the fallback (and the A/B control).
+**Session-hook spike (deterministic path).** The plugin also registers OpenCode V2 **session hooks** (`ctx.session.hook('prompt', …)` and `ctx.session.hook('context', …)`) that classify the incoming prompt once at admission and inject the resulting tier as a **system instruction** — the user's prompt text is never rewritten, and no tool call is required. The path is **on by default** and disabled with **`CLI_FIVE_JEVR_HOOKS=0`**; it is inert (no throw, no behaviour change) on hosts without the session-hook surface. Every hook firing and every registration outcome is appended to the jev journal at **`.opencode/journals/jev-tier-router.log`**, so "did the hooks fire?" is answerable from the log alone. Measured: V2 session hooks **do fire** under OpenChamber's managed server (the old "hooks don't fire" belief came from the V1 *tool-interception* hooks and never applied to this family), and the permission `evaluate` hook below is likewise measured to fire. The **routing policy** remains an open question (the spike classifies every admission by default); the `tier_classifier` tool stays as the fallback and A/B control.
+
+**Spawn gate (opt-in).** The plugin also ships an **opt-in Reviewer-spawn gate**, built on the OpenCode V2 permission `evaluate` hook (the measured enforcement surface). Enable it with either switch:
+
+- **`.opencode/jev.json`** — the switch that works under **OpenChamber routing**, whose long-running `opencode serve` process never inherits your client environment. Write the project file and the change takes effect on the **next event, with no server restart**:
+
+  ```json
+  { "spawnGate": "shadow" }
+  ```
+
+  Accepted values are `off` | `shadow` | `enforce`; anything else — a missing, unreadable, unparseable, or keyless file — is `off`. The file is read against an `mtime`/`size`/`inode` stat signature (one `statSync` per in-scope event; a changed signature re-reads), so toggling it back and forth costs nothing else. If `ctx.location` yields no project directory, the file switch is disabled and the journal records `spawn-gate-config: no project directory; file switch disabled`.
+
+- **`CLI_FIVE_JEVR_SPAWN_GATE=shadow|enforce`** — the env override, for **standalone/CI** runs (`opencode run --standalone`). When set, it **wins over the file**. An **unrecognised value, including a typo, is `off` — it does not fall through to the file**, so a bad env value silently disables the gate (and the journal shows no decision lines). Default `off`.
+
+The gate's `evaluate` hook is always registered; the mode is resolved per event, so neither switch needs a reload. The gate acts only on `subagent` spawns whose target agent matches `reviewer` — everything else returns before any file read or network call.
+
+- It reads the session transcript, finds the **most recent test run only**, and asks Jev two `noul` questions in one request: did that run fail, and is the failure **mechanical** (a missing import/module/dependency, a typo, a syntax error, or formatting) and fixable without design judgment or code review?
+- **`shadow`** classifies and journals what it *would* deny but never changes the outcome. **`enforce`** may set `effect = 'deny'`, so the Reviewer spawn is blocked and its tokens are not spent; the deny is capped at **2 per session**.
+- **Fail-open is non-negotiable:** a missing credential (zero network calls), a Jev error, a timeout, a malformed/unknown response, a transcript with no detectable test-run output, or any host error all leave the spawn **allowed** and set no effect. The handler never throws.
+- Every decision is journaled to the **project's** `.opencode/journals/jev-tier-router.log` (the sink follows the resolved project directory, so under OpenChamber routing lines land in the project — not the server process's cwd) with `session`, `agent`, `mode`, `p_failing`, `p_mechanical`, `decision` (`allow` | `would-deny` | `deny`), `provider`, `model`, `latency_ms`, `state_chars`, and a `reason`. `CLI_FIVE_LOGFILE` overrides the path when set. Decision lines use the reserved `spawn-gate:` prefix; setup and config notices use `spawn-gate-config:` so the two never mix. Tally the decisions from the project root with:
+
+  ```bash
+  grep -h 'spawn-gate:' .opencode/journals/jev-tier-router.log | sed -E 's/.*decision=([a-z-]+).*/\1/' | sort | uniq -c
+  ```
+
+The "test run" detector is a documented heuristic (pass/fail counts, `PASS`/`FAIL`, `AssertionError`, `Traceback`, `Error:`, `✗`/`✓`, `npm test`/`pytest`/`jest`/`vitest`), and the cutoffs (`p_failing >= 0.85 && p_mechanical >= 0.85`), 5 s timeout, 8000-char state cap, and 2-deny cap are named constants at the top of `index.js`. The README's contract is the default-off path: a plain `add jev` install gates nothing until you opt in.
+
+**What leaves the machine.** The session hooks and the `tier_classifier` tool both send the text they classify — the user's prompt, or the tool's `description` — to the resolved Jev provider (OpenCode Zen, or TypeSafe if that key is configured); the session hooks do so **by default** once a credential resolves, and `CLI_FIVE_JEVR_HOOKS=0` turns them off. The spawn gate is distinct only in *what* it sends: a **truncated slice of the session transcript** — the most recent test-run output plus the last few messages, capped at ~8000 characters. With the spawn gate at its default `off` (no `CLI_FIVE_JEVR_SPAWN_GATE` and no `.opencode/jev.json` `spawnGate`), the gate reads no transcript and makes no call; that statement is about the gate, not a claim that the rest of the plugin is silent.
+
+**Why `shadow` comes first.** The two cutoffs are **initial values, not tuned ones**. `p_mechanical` is phrasing-sensitive: measured live, `Cannot find module 'left-pad'` scored **0.95** and `SyntaxError: Unexpected token '}'` scored **0.91**, but a bare `ReferenceError: helper is not defined` scored **0.76** and a pass/fail count with no error text scored **0.16** — so at the shipped 0.85 cutoff some genuinely mechanical failures are allowed through. Run in `shadow` on real work first, read the journal's `p_failing`/`p_mechanical` columns, and only move to `enforce` once you have seen what it would deny in your own codebase.
 
 **Copilot has no equivalent.** `add jev` refuses cleanly on a Copilot target (exit 1, no files written) — there is no `tools.add`-style surface there.
 

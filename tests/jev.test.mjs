@@ -17,7 +17,19 @@ const {
   classifyTaskWithJev,
   classifyWithJev,
   registerSessionHooks,
+  registerSpawnGate,
   safeErrText,
+  journal,
+  SPAWN_GATE_FALLING_CUTOFF,
+  SPAWN_GATE_MECHANICAL_CUTOFF,
+  SPAWN_GATE_MAX_DENIES,
+  SPAWN_GATE_MAX_TRACKED_SESSIONS,
+  SPAWN_GATE_STATE_MAX_CHARS,
+  SPAWN_GATE_TEST_OUTPUT_RE,
+  buildSpawnGateState,
+  flattenMessage,
+  parseNoulAnswer,
+  resolveSpawnGateProjectDir,
 } = pluginTestables;
 
 const PLUGIN_FILE = new URL('../templates/opencode/plugin/jev-tier-router/index.js', import.meta.url);
@@ -427,6 +439,31 @@ test('journaling: the DEFAULT path is created under cwd on a fresh scaffold', as
     process.chdir(previous);
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('journaling: opts.projectDir selects the default sink and CLI_FIVE_LOGFILE overrides it', () => {
+  const projectDir = workspace();
+  const otherDir = workspace();
+  const logFile = join(otherDir, 'custom.log');
+
+  // No CLI_FIVE_LOGFILE: the project dir decides where the default sink lands,
+  // even though process.cwd() is elsewhere.
+  journal('probe-project-dir', { env: {}, projectDir });
+  const projectLog = join(projectDir, '.opencode', 'journals', 'jev-tier-router.log');
+  assert.ok(existsSync(projectLog), 'the project-dir journal must be created');
+  assert.match(readFileSync(projectLog, 'utf8'), /probe-project-dir/);
+
+  // CLI_FIVE_LOGFILE wins over opts.projectDir.
+  journal('probe-explicit-logfile', { env: { CLI_FIVE_LOGFILE: logFile }, projectDir });
+  assert.ok(existsSync(logFile), 'CLI_FIVE_LOGFILE must still win');
+  assert.match(readFileSync(logFile, 'utf8'), /probe-explicit-logfile/);
+  assert.ok(
+    !readFileSync(projectLog, 'utf8').includes('probe-explicit-logfile'),
+    'the explicit logfile must not also write the project journal',
+  );
+
+  rmSync(projectDir, { recursive: true, force: true });
+  rmSync(otherDir, { recursive: true, force: true });
 });
 
 test('a failed remote call journals the provider and failure kind without the key', async () => {
@@ -1294,4 +1331,988 @@ test('jev writes go through mergeBlock and leave foreign JSON keys intact', () =
   assert.deepEqual(cfg.$cliFive.blocks, ['jev']);
 
   rmSync(dir, { recursive: true, force: true });
+});
+
+// ── Spawn gate (opt-in Reviewer-spawn admission control) ──────────────
+
+function spawnEnv(overrides = {}) {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const env = {
+    CLI_FIVE_JEVR_SPAWN_GATE: 'enforce',
+    OPENCODE_API_KEY: 'k',
+    CLI_FIVE_LOGFILE: logFile,
+    ...overrides,
+  };
+  return {
+    dir,
+    logFile,
+    env,
+    read: () => readFileSync(logFile, 'utf8'),
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+// A spawn-gate scenario driven by the project's `.opencode/jev.json` instead of
+// the env var: writes `contents` there (or no file when null) and returns the
+// `ctx.location` that points at that project.
+function spawnEnvFile(contents, extraEnv = {}) {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const cfgDir = join(dir, '.opencode');
+  mkdirSync(cfgDir, { recursive: true });
+  const cfgFile = join(cfgDir, 'jev.json');
+  if (contents !== null && contents !== undefined) writeFileSync(cfgFile, contents);
+  const env = { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile, ...extraEnv };
+  return {
+    dir,
+    logFile,
+    cfgFile,
+    env,
+    location: { directory: dir },
+    read: () => readFileSync(logFile, 'utf8'),
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+// Capture the permission `evaluate` handler a spawn-gate registration installs.
+function captureSpawnGate({ messages = [], context, location } = {}) {
+  const captured = {};
+  const contextImpl = context ?? (async () => messages);
+  const ctx = {
+    permission: { hook: (name, fn) => { captured[name] = fn; return Promise.resolve({ dispose() {} }); } },
+    session: { context: contextImpl },
+  };
+  if (location !== undefined) ctx.location = location;
+  return { ctx, captured };
+}
+
+// The REAL shape returned by ctx.session.context: a flat message with NO
+// `role` and NO `content`. Keys are [id, time, text, files, type]; `type` is
+// the role-ish value and `text` is the message text.
+function transcriptMessage(type, text) {
+  return { id: `msg_${type}_${text.length}`, time: { created: 1699999999 }, text, files: [], type };
+}
+
+// The OLD/assumed {role, content:[{type,text}]} shape, kept so both shapes stay
+// covered. Used only where a test explicitly exercises the fallback path.
+function contentMessage(role, text) {
+  return { id: `m-${role}-${text.length}`, role, content: [{ type: 'text', text }] };
+}
+
+// The same real-shape message but with its text JSON-stringified (quotes +
+// escaped newlines), which the host sometimes emits.
+function jsonWrappedMessage(type, text) {
+  return { id: `msg_${type}_json`, time: { created: 1699999999 }, text: JSON.stringify(text), files: [], type };
+}
+
+function noulBody(pFailing, pMechanical) {
+  return {
+    answers: {
+      failing_now: { type: 'noul', noul: pFailing },
+      mechanical: { type: 'noul', noul: pMechanical },
+    },
+  };
+}
+
+function reviewerEvent(sessionID) {
+  return { sessionID, agent: 'orchestrator', action: 'subagent', resources: ['reviewer'], effect: 'allow' };
+}
+
+test('spawn-gate: a non-spawn event makes no network call and journals no decision', async () => {
+  const j = spawnEnv();
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return { ok: true, status: 200, async json() { return noulBody(0.99, 0.99); } };
+  };
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '5 passing')] });
+  registerSpawnGate(ctx, { env: j.env, fetchImpl });
+
+  await captured.evaluate({ sessionID: 's-shell', action: 'shell', resources: ['bash'] });
+  await captured.evaluate({
+    sessionID: 's-coder',
+    agent: 'orchestrator',
+    action: 'subagent',
+    resources: ['probe-coder'],
+    effect: 'allow',
+  });
+  await captured.evaluate({ sessionID: 's-read', action: 'read', resources: ['README.md'] });
+
+  assert.equal(calls, 0, 'a non-reviewer scope must not call Jev');
+  assert.ok(!/decision=/.test(j.read()), 'out-of-scope events must not journal a decision');
+
+  j.cleanup();
+});
+
+test('spawn-gate: denies only when both probabilities meet their cutoff', async () => {
+  const cases = [
+    { f: 0.849, m: 0.85, deny: false },
+    { f: 0.85, m: 0.85, deny: true },
+    { f: 0.851, m: 0.851, deny: true },
+    { f: 0.85, m: 0.849, deny: false },
+    { f: 0.849, m: 0.849, deny: false },
+    { f: 0.851, m: 0.849, deny: false },
+    { f: 0.849, m: 0.851, deny: false },
+  ];
+
+  const j = spawnEnv();
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '1 failed, 3 passed')] });
+  let i = 0;
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => {
+      const { f, m } = cases[i];
+      return { ok: true, status: 200, async json() { return noulBody(f, m); } };
+    },
+  });
+
+  assert.equal(SPAWN_GATE_FALLING_CUTOFF, 0.85);
+  assert.equal(SPAWN_GATE_MECHANICAL_CUTOFF, 0.85);
+
+  for (const c of cases) {
+    const event = reviewerEvent(`threshold-${i}`);
+    await captured.evaluate(event);
+    assert.equal(event.effect, c.deny ? 'deny' : 'allow', `f=${c.f} m=${c.m} must ${c.deny ? 'deny' : 'allow'}`);
+    i += 1;
+  }
+
+  j.cleanup();
+});
+
+test('spawn-gate: shadow journals would-deny but never sets an effect', async () => {
+  const j = spawnEnv({ CLI_FIVE_JEVR_SPAWN_GATE: 'shadow' });
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '2 failed')] });
+  let body;
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async (_url, init) => {
+      body = JSON.parse(init.body);
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const event = reviewerEvent('shadow-1');
+  await captured.evaluate(event);
+
+  assert.equal(event.effect, 'allow', 'shadow must leave the host effect untouched');
+  assert.equal(event.message, undefined, 'shadow must not set a message');
+  const log = j.read();
+  assert.match(log, /decision=would-deny/);
+  assert.match(log, /mode=shadow/);
+  assert.match(log, /provider=opencode/);
+  assert.match(log, /model=jev-1\.13-free/);
+
+  // Both questions travel in ONE request, both noul.
+  assert.equal(Object.keys(body.questions).length, 2);
+  assert.equal(body.questions.failing_now.type, 'noul');
+  assert.equal(body.questions.mechanical.type, 'noul');
+  assert.ok(body.state.length > 0);
+
+  j.cleanup();
+});
+
+test('spawn-gate: the enforce cap turns the third deny into an allow with reason cap', async () => {
+  const j = spawnEnv();
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '1 failed')] });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return noulBody(0.99, 0.99); } }),
+  });
+
+  assert.equal(SPAWN_GATE_MAX_DENIES, 2);
+
+  const effects = [];
+  for (let n = 0; n < 3; n += 1) {
+    const event = reviewerEvent('cap-session');
+    await captured.evaluate(event);
+    effects.push(event.effect);
+  }
+
+  assert.deepEqual(effects, ['deny', 'deny', 'allow']);
+  const log = j.read();
+  assert.equal((log.match(/decision=deny\b/g) || []).length, 2, 'exactly two denies are spent');
+  assert.equal((log.match(/reason=cap\b/g) || []).length, 1, 'the third attempt is capped to allow');
+
+  j.cleanup();
+});
+
+test('spawn-gate: a stale failing run followed by a newer passing run allows', async () => {
+  const j = spawnEnv();
+  const messages = [
+    transcriptMessage('tool', 'FAIL tests/old.test.js — 3 failing'),
+    transcriptMessage('assistant', 'the old failure is still in the transcript'),
+    transcriptMessage('tool', 'PASS tests/new.test.js — 12 passing'),
+  ];
+  const { ctx, captured } = captureSpawnGate({ messages });
+  let seen;
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async (_url, init) => {
+      seen = JSON.parse(init.body);
+      const newestIsPass = seen.state.indexOf('PASS') < seen.state.indexOf('FAIL');
+      return { ok: true, status: 200, async json() { return noulBody(newestIsPass ? 0.1 : 0.9, 0.9); } };
+    },
+  });
+
+  const event = reviewerEvent('stale-1');
+  await captured.evaluate(event);
+
+  assert.ok(
+    seen.state.indexOf('PASS') < seen.state.indexOf('FAIL'),
+    'the state must present the most recent run first (newest first)',
+  );
+  assert.equal(event.effect, 'allow', 'a passing most-recent run must not deny');
+  assert.match(j.read(), /decision=allow/);
+
+  j.cleanup();
+});
+
+test('spawn-gate: Jev error, HTTP failure, timeout, malformed response, or missing credential all allow', async () => {
+  const scenarios = [
+    { name: 'network error', fetchImpl: async () => { throw new TypeError('fetch failed'); } },
+    { name: 'http failure', fetchImpl: async () => ({ ok: false, status: 429, async json() { return {}; } }) },
+    {
+      name: 'malformed response',
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+          return { answers: { failing_now: { type: 'choice', choice: 'yes' } } };
+        },
+      }),
+    },
+    {
+      name: 'non-numeric noul',
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+          return { answers: { failing_now: { type: 'noul', noul: 'high' }, mechanical: { type: 'noul', noul: 0.9 } } };
+        },
+      }),
+    },
+    {
+      name: 'out-of-range noul',
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+          return { answers: { failing_now: { type: 'noul', noul: 1.5 }, mechanical: { type: 'noul', noul: 0.9 } } };
+        },
+      }),
+    },
+    {
+      name: 'timeout',
+      fetchImpl: (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+      opts: { timeoutMs: 10 },
+    },
+  ];
+
+  for (const s of scenarios) {
+    const j = spawnEnv();
+    const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '1 failed')] });
+    registerSpawnGate(ctx, { env: j.env, fetchImpl: s.fetchImpl, ...(s.opts ?? {}) });
+
+    const event = reviewerEvent('fail-1');
+    await assert.doesNotReject(() => captured.evaluate(event), s.name);
+    assert.equal(event.effect, 'allow', `${s.name} must leave the effect untouched`);
+    assert.match(j.read(), /decision=allow/, s.name);
+
+    j.cleanup();
+  }
+
+  // Missing credential: allow with zero network calls.
+  const j = spawnEnv({ OPENCODE_API_KEY: undefined });
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '1 failed')] });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    readFile: throwingRead,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const event = reviewerEvent('no-cred-1');
+  await captured.evaluate(event);
+  assert.equal(calls, 0, 'no credential must make zero network calls');
+  assert.equal(event.effect, 'allow');
+  assert.match(j.read(), /reason=no-credential/);
+
+  j.cleanup();
+});
+
+test('spawn-gate: the handler never throws on hostile events', async () => {
+  const j = spawnEnv();
+  const hostile = captureSpawnGate({ context: async () => { throw new Error('context exploded'); } });
+  registerSpawnGate(hostile.ctx, {
+    env: j.env,
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } }),
+  });
+
+  const hostileResource = { [Symbol.toPrimitive]() { throw new Error('resource boomed'); } };
+  const proxyEvent = new Proxy({}, { get() { throw new Error('proxy boom'); } });
+
+  const events = [
+    undefined,
+    {},
+    { sessionID: 'h', action: 'subagent', resources: null },
+    { sessionID: 'h', action: 'subagent', resources: [hostileResource] },
+    proxyEvent,
+  ];
+  for (let idx = 0; idx < events.length; idx += 1) {
+    await assert.doesNotReject(() => hostile.captured.evaluate(events[idx]), `must not throw for event #${idx}`);
+  }
+
+  // A reviewer spawn whose transcript read rejects also fails open.
+  await assert.doesNotReject(() => hostile.captured.evaluate(reviewerEvent('h-context')));
+  assert.match(j.read(), /reason=error:context exploded/);
+
+  // A junk (non-array) transcript is treated as "no test output": allow, no call.
+  const junk = captureSpawnGate({ context: async () => 'not an array' });
+  registerSpawnGate(junk.ctx, {
+    env: j.env,
+    fetchImpl: async () => { throw new Error('must not be called'); },
+  });
+  const junkEvent = reviewerEvent('junk-1');
+  await assert.doesNotReject(() => junk.captured.evaluate(junkEvent));
+  assert.equal(junkEvent.effect, 'allow');
+  assert.match(j.read(), /reason=no-test-output/);
+
+  j.cleanup();
+});
+
+test('spawn-gate: opt-in registration coexists with the session hooks, which still work unchanged', async () => {
+  const j = spawnEnv({ CLI_FIVE_JEVR_SPAWN_GATE: 'shadow', OPENCODE_API_KEY: undefined });
+  const captured = {};
+  const ctx = {
+    session: { hook: (name, fn) => { captured[name] = fn; return Promise.resolve({ dispose() {} }); } },
+    permission: { hook: (name, fn) => { captured[`perm:${name}`] = fn; return Promise.resolve({ dispose() {} }); } },
+  };
+
+  registerSessionHooks(ctx, { env: j.env, readFile: throwingRead });
+  registerSpawnGate(ctx, { env: j.env, readFile: throwingRead });
+
+  assert.equal(typeof captured.prompt, 'function', 'the prompt hook must still register');
+  assert.equal(typeof captured.context, 'function', 'the context hook must still register');
+  assert.equal(typeof captured['perm:evaluate'], 'function', 'the spawn gate must register its evaluate hook');
+
+  await captured.prompt({ sessionID: 'co-1', prompt: { text: 'fix a typo in README' } });
+  const contextEvent = { sessionID: 'co-1', system: [] };
+  captured.context(contextEvent);
+  assert.equal(contextEvent.system.length, 1);
+  assert.match(j.read(), /hooks: context injected session=co-1/);
+
+  j.cleanup();
+});
+
+test('spawn-gate: the evaluate hook is registered regardless of mode', () => {
+  const register = (value) => {
+    const j = spawnEnv({ CLI_FIVE_JEVR_SPAWN_GATE: value });
+    const { ctx, captured } = captureSpawnGate({ messages: [] });
+    registerSpawnGate(ctx, { env: j.env });
+    const registered = typeof captured.evaluate === 'function';
+    j.cleanup();
+    return registered;
+  };
+
+  // The mode is resolved per event, not at registration, so every value must
+  // still install the hook (a file toggle needs no re-registration).
+  for (const value of [undefined, 'off', 'bogus', 'true', '1', 'shadow', 'enforce', 'ENFORCE']) {
+    assert.equal(register(value), true, `${String(value)} must still register the evaluate hook`);
+  }
+});
+
+test('spawn-gate config: the env switch overrides .opencode/jev.json', async () => {
+  const j = spawnEnvFile(JSON.stringify({ spawnGate: 'shadow' }), { CLI_FIVE_JEVR_SPAWN_GATE: 'enforce' });
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', '1 failed')],
+    location: j.location,
+  });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const event = reviewerEvent('env-wins');
+  await captured.evaluate(event);
+
+  assert.equal(event.effect, 'deny', 'the env switch (enforce) must win over the file (shadow)');
+  assert.equal(calls, 1);
+  assert.match(j.read(), /mode=enforce/);
+
+  j.cleanup();
+});
+
+test('spawn-gate config: a set-but-invalid env value is off and does not fall through to the file', async () => {
+  // The file says enforce, but a typo'd env value is authoritative: off, not
+  // the file's enforce.
+  const j = spawnEnvFile(JSON.stringify({ spawnGate: 'enforce' }), { CLI_FIVE_JEVR_SPAWN_GATE: 'bogus' });
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', '1 failed')],
+    location: j.location,
+  });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const event = reviewerEvent('bogus-env');
+  await captured.evaluate(event);
+
+  assert.equal(event.effect, 'allow', 'an invalid env value must resolve off, not read the file');
+  assert.equal(calls, 0, 'off makes no network call');
+  assert.ok(!/decision=/.test(j.read()), 'off journals no decision');
+
+  j.cleanup();
+});
+
+test('spawn-gate config: the cache signature includes the inode, catching a same-mtime same-size rewrite', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const cfgFile = join(dir, '.opencode', 'jev.json');
+  mkdirSync(join(dir, '.opencode'), { recursive: true });
+  writeFileSync(cfgFile, JSON.stringify({ spawnGate: 'shadow' }));
+
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', '1 failed')],
+    location: { directory: dir },
+  });
+  // Inject a stat whose mtime and size are frozen, so only the inode changes.
+  let ino = 1;
+  let current = 'shadow';
+  registerSpawnGate(ctx, {
+    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    statSync: () => ({ mtimeMs: 1000, size: 20, ino }),
+    readFileSync: () => JSON.stringify({ spawnGate: current }),
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } }),
+  });
+
+  const first = reviewerEvent('ino-1');
+  await captured.evaluate(first);
+  assert.equal(first.effect, 'allow', 'shadow must not deny');
+  assert.match(readFileSync(logFile, 'utf8'), /decision=would-deny/);
+
+  // Same mtime and size, new inode, new content: the mode must change to deny.
+  ino = 2;
+  current = 'enforce';
+  const second = reviewerEvent('ino-2');
+  await captured.evaluate(second);
+  assert.equal(second.effect, 'deny', 'a changed inode must invalidate the cache even at equal mtime+size');
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('spawn-gate config: a missing project directory journals a clear notice and disables the file switch', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  // No ctx.location and no projectDir: there is nothing to read the file from.
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '1 failed')] });
+  let calls = 0;
+  registerSpawnGate(ctx, {
+    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  assert.match(readFileSync(logFile, 'utf8'), /spawn-gate-config: no project directory; file switch disabled/);
+
+  const event = reviewerEvent('no-dir');
+  await captured.evaluate(event);
+  assert.equal(event.effect, 'allow');
+  assert.equal(calls, 0, 'without a project directory the file switch is off — no call');
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('spawn-gate config: the file is used when the env switch is unset', async () => {
+  const j = spawnEnvFile(JSON.stringify({ spawnGate: 'shadow' }));
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', '1 failed')],
+    location: j.location,
+  });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const event = reviewerEvent('file-shadow');
+  await captured.evaluate(event);
+
+  assert.equal(event.effect, 'allow', 'shadow must leave the effect untouched');
+  assert.equal(calls, 1);
+  const log = j.read();
+  assert.match(log, /decision=would-deny/);
+  assert.match(log, /mode=shadow/);
+
+  j.cleanup();
+});
+
+test('spawn-gate config: missing, malformed, unrecognised, or keyless file is off with no network call', async () => {
+  const cases = [
+    { name: 'missing file', contents: null },
+    { name: 'malformed JSON', contents: '{ not json at all' },
+    { name: 'unrecognised value', contents: JSON.stringify({ spawnGate: 'sometimes' }) },
+    { name: 'absent key', contents: JSON.stringify({ other: true }) },
+    { name: 'non-object JSON', contents: JSON.stringify('shadow') },
+  ];
+
+  for (const c of cases) {
+    const j = spawnEnvFile(c.contents);
+    let calls = 0;
+    const { ctx, captured } = captureSpawnGate({
+      messages: [transcriptMessage('tool', '1 failed')],
+      location: j.location,
+    });
+    registerSpawnGate(ctx, {
+      env: j.env,
+      fetchImpl: async () => {
+        calls += 1;
+        return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+      },
+    });
+
+    const event = reviewerEvent('off-1');
+    await assert.doesNotReject(() => captured.evaluate(event), c.name);
+    assert.equal(event.effect, 'allow', `${c.name} must be off (allow)`);
+    assert.equal(calls, 0, `${c.name} must make no network call`);
+    assert.ok(!/decision=/.test(j.read()), `${c.name} must journal no decision`);
+
+    j.cleanup();
+  }
+});
+
+test('spawn-gate config: toggling the file between events changes behaviour without re-registering', async () => {
+  const j = spawnEnvFile(JSON.stringify({ spawnGate: 'shadow' }));
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', '1 failed')],
+    location: j.location,
+  });
+  // Registered ONCE. Every evaluation below uses this same captured handler.
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const shadowEvent = reviewerEvent('toggle-1');
+  await captured.evaluate(shadowEvent);
+  assert.equal(shadowEvent.effect, 'allow', 'shadow must not deny');
+  assert.match(j.read(), /decision=would-deny/);
+  assert.equal(calls, 1);
+
+  writeFileSync(j.cfgFile, JSON.stringify({ spawnGate: 'off' }));
+  const before = j.read();
+  const offEvent = reviewerEvent('toggle-2');
+  await captured.evaluate(offEvent);
+  assert.equal(offEvent.effect, 'allow');
+  assert.equal(calls, 1, 'off must make no network call');
+  assert.equal(j.read(), before, 'off must append no gate lines');
+
+  writeFileSync(j.cfgFile, JSON.stringify({ spawnGate: 'enforce' }));
+  const enforceEvent = reviewerEvent('toggle-3');
+  await captured.evaluate(enforceEvent);
+  assert.equal(enforceEvent.effect, 'deny', 'enforce must deny the same mechanical failure');
+  assert.equal(calls, 2);
+  assert.match(j.read(), /decision=deny/);
+
+  j.cleanup();
+});
+
+test('spawn-gate config: a malformed file is journaled once per stat signature, not per event', async () => {
+  const j = spawnEnvFile('{ not json at all');
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', '1 failed')],
+    location: j.location,
+  });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const notices = () => (j.read().match(/spawn-gate-config: malformed/g) || []).length;
+
+  await captured.evaluate(reviewerEvent('mal-1'));
+  await captured.evaluate(reviewerEvent('mal-2'));
+  assert.equal(calls, 0, 'a malformed file must make no network call');
+  assert.equal(notices(), 1, 'the same malformed file is journaled once, not per event');
+
+  // A rewrite changes the stat signature, so it earns exactly one more notice.
+  writeFileSync(j.cfgFile, '{ still not json, but definitely longer');
+  await captured.evaluate(reviewerEvent('mal-3'));
+  assert.equal(notices(), 2, 'a rewritten malformed file earns one more notice');
+  assert.ok(!/decision=/.test(j.read()), 'a malformed file makes no decision');
+
+  j.cleanup();
+});
+
+test('spawn-gate config: non-reviewer events touch no fs and no network', async () => {
+  const j = spawnEnvFile(JSON.stringify({ spawnGate: 'enforce' }));
+  let stats = 0;
+  let reads = 0;
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', '1 failed')],
+    location: j.location,
+  });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    statSync: () => {
+      stats += 1;
+      throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+    },
+    readFileSync: () => {
+      reads += 1;
+      return '{}';
+    },
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  await captured.evaluate({ sessionID: 's-shell', action: 'shell', resources: ['bash'] });
+  await captured.evaluate({
+    sessionID: 's-coder',
+    agent: 'orchestrator',
+    action: 'subagent',
+    resources: ['probe-coder'],
+    effect: 'allow',
+  });
+  await captured.evaluate({ sessionID: 's-read', action: 'read', resources: ['README.md'] });
+
+  assert.equal(stats, 0, 'statSync must not run for out-of-scope events');
+  assert.equal(reads, 0, 'readFileSync must not run for out-of-scope events');
+  assert.equal(calls, 0, 'fetch must not run for out-of-scope events');
+  assert.ok(!/decision=/.test(j.read()), 'out-of-scope events must journal nothing');
+
+  // In scope, the same handler does stat (proving the filter is the cause).
+  await captured.evaluate(reviewerEvent('in-scope'));
+  assert.equal(stats, 1, 'an in-scope reviewer event reads the config file stat');
+  assert.equal(reads, 0, 'a missing file is never read');
+
+  j.cleanup();
+});
+
+test('spawn-gate config: the project directory resolves from ctx.location with documented fallbacks', () => {
+  assert.equal(resolveSpawnGateProjectDir({ location: { directory: '/p' } }, {}), '/p');
+  assert.equal(resolveSpawnGateProjectDir({ location: { project: { directory: '/q' } } }, {}), '/q');
+  assert.equal(resolveSpawnGateProjectDir({ location: { project: { canonical: '/r' } } }, {}), '/r');
+  assert.equal(
+    resolveSpawnGateProjectDir({ location: { directory: '/p', project: { canonical: '/r' } } }, {}),
+    '/p',
+    'directory wins over project metadata',
+  );
+  assert.equal(resolveSpawnGateProjectDir({ location: {} }, {}), null);
+  assert.equal(resolveSpawnGateProjectDir({}, {}), null);
+  assert.equal(
+    resolveSpawnGateProjectDir({ get location() { throw new Error('boom'); } }, {}),
+    null,
+    'a hostile location getter must fail to null, not throw',
+  );
+  assert.equal(
+    resolveSpawnGateProjectDir({ location: { directory: '/p' } }, { spawnGateProjectDir: '/s' }),
+    '/s',
+    'the explicit option is the test seam and wins',
+  );
+});
+
+test('spawn-gate config: setup journals the project directory under a non-decision prefix', () => {
+  const j = spawnEnvFile(null);
+  const { ctx, captured } = captureSpawnGate({ messages: [], location: j.location });
+  registerSpawnGate(ctx, { env: j.env });
+
+  assert.equal(typeof captured.evaluate, 'function', 'the hook is registered even with no config');
+  const log = j.read();
+  assert.match(log, /spawn-gate-config: dir=/);
+  assert.match(log, new RegExp(`spawn-gate-config: dir=${j.dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.ok(!/spawn-gate: dir=/.test(log), 'the directory line must not use the decision prefix');
+  assert.ok(!/spawn-gate: /.test(log), 'no decision line when no decision was made');
+
+  j.cleanup();
+});
+
+test('spawn-gate config: the decision journal stays unambiguous for the documented tally', async () => {
+  const j = spawnEnvFile(JSON.stringify({ spawnGate: 'shadow' }));
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', '1 failed')],
+    location: j.location,
+  });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } }),
+  });
+  await captured.evaluate(reviewerEvent('tally-1'));
+
+  // Mirrors the README tally: only `spawn-gate:` decision lines carry
+  // `decision=<value>`; config/setup lines must not match.
+  const log = j.read();
+  const tallyLines = log.split('\n').filter((line) => line.includes('spawn-gate:'));
+  const decisions = tallyLines
+    .map((line) => (line.match(/decision=([a-z-]+)/) || [])[1])
+    .filter(Boolean);
+  assert.deepEqual(decisions, ['would-deny']);
+  assert.equal(tallyLines.length, decisions.length, 'every spawn-gate: line must be a decision line');
+
+  j.cleanup();
+});
+
+test('spawn-gate: the test-output heuristic matches real runner output and state truncates to the cap', async () => {
+  assert.ok(SPAWN_GATE_TEST_OUTPUT_RE.test('12 passing, 1 failing'));
+  assert.ok(SPAWN_GATE_TEST_OUTPUT_RE.test('FAIL src/x.test.ts'));
+  assert.ok(SPAWN_GATE_TEST_OUTPUT_RE.test('AssertionError: expected 1 to equal 2'));
+  assert.ok(SPAWN_GATE_TEST_OUTPUT_RE.test('Traceback (most recent call last):'));
+  assert.ok(SPAWN_GATE_TEST_OUTPUT_RE.test('npm test'));
+  assert.ok(SPAWN_GATE_TEST_OUTPUT_RE.test('✓ renders the panel'));
+  assert.ok(!SPAWN_GATE_TEST_OUTPUT_RE.test('just a normal assistant message'));
+
+  const j = spawnEnv({ CLI_FIVE_JEVR_SPAWN_GATE: 'shadow' });
+  const long = 'x'.repeat(20000);
+  const { ctx, captured } = captureSpawnGate({
+    messages: [transcriptMessage('tool', `1 failed\n${long}`)],
+  });
+  let body;
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async (_url, init) => {
+      body = JSON.parse(init.body);
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  await captured.evaluate(reviewerEvent('trunc-1'));
+  assert.ok(body.state.length <= SPAWN_GATE_STATE_MAX_CHARS, 'state must be truncated to the cap');
+  assert.equal(SPAWN_GATE_STATE_MAX_CHARS, 8000);
+
+  j.cleanup();
+});
+
+test('spawn-gate: flattenMessage reads the real flat shape, the legacy content shape, and unwraps JSON text', () => {
+  const real = flattenMessage(transcriptMessage('tool', '3 failing'));
+  assert.equal(real.role, 'tool');
+  assert.equal(real.text, '3 failing');
+
+  const legacy = flattenMessage(contentMessage('assistant', 'hello from a content part'));
+  assert.equal(legacy.role, 'assistant');
+  assert.equal(legacy.text, 'hello from a content part');
+
+  const wrapped = flattenMessage(jsonWrappedMessage('tool', 'line1\nline2 "quoted"'));
+  assert.equal(wrapped.text, 'line1\nline2 "quoted"', 'a JSON-stringified text must be unwrapped once');
+
+  // Absent `text` falls back to a content array / string; hostile and missing
+  // fields are tolerated without throwing.
+  assert.deepEqual(flattenMessage({ content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] }), {
+    role: 'unknown',
+    text: 'a\nb',
+  });
+  assert.deepEqual(flattenMessage({ content: 'plain' }), { role: 'unknown', text: 'plain' });
+  assert.deepEqual(flattenMessage({}), { role: 'unknown', text: '' });
+  assert.deepEqual(flattenMessage(undefined), { role: 'unknown', text: '' });
+  assert.deepEqual(flattenMessage({ text: undefined, files: 'not-an-array' }), { role: 'unknown', text: '' });
+
+  // A text that starts/ends with a quote but is not valid JSON is left as-is.
+  assert.equal(flattenMessage({ text: '"x" trailing' }).text, '"x" trailing');
+});
+
+test('spawn-gate: buildSpawnGateState detects a real-shaped transcript (deterministic)', async () => {
+  const messages = [
+    transcriptMessage('user', 'run the suite'),
+    transcriptMessage('assistant', 'running the tests'),
+    jsonWrappedMessage('tool', 'FAIL tests/a.test.js\n1 failing, 4 passing'),
+  ];
+  const ctx = { session: { context: async () => messages } };
+
+  const state = await buildSpawnGateState(ctx, 'deterministic-1');
+  assert.equal(state.hasTestOutput, true, 'the real flat shape must be detected');
+  assert.ok(state.chars > 0, 'the real flat shape must produce a non-empty state');
+  assert.ok(state.text.includes('1 failing, 4 passing'));
+});
+
+test('spawn-gate regression: a real-shaped transcript with a failing run attempts the Jev call', async () => {
+  const j = spawnEnv();
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({
+    messages: [
+      transcriptMessage('user', 'fix the build'),
+      transcriptMessage('tool', 'FAIL tests/real.test.js\n1 failing, 4 passing'),
+    ],
+  });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const event = reviewerEvent('real-shape-1');
+  await captured.evaluate(event);
+
+  assert.equal(calls, 1, 'the real-shaped transcript must reach Jev, not short-circuit as no-test-output');
+  assert.ok(!/reason=no-test-output/.test(j.read()), 'must not take the no-test-output path');
+  assert.equal(event.effect, 'deny');
+
+  const log = j.read();
+  assert.match(log, /p_failing=0\.9/);
+  assert.ok(!/state_chars=0\b/.test(log), 'state must be non-empty');
+
+  j.cleanup();
+});
+
+test('spawn-gate: the legacy {role, content} shape still reaches Jev', async () => {
+  const j = spawnEnv();
+  let calls = 0;
+  const { ctx, captured } = captureSpawnGate({ messages: [contentMessage('tool', '2 failed')] });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, async json() { return noulBody(0.9, 0.9); } };
+    },
+  });
+
+  const event = reviewerEvent('legacy-1');
+  await captured.evaluate(event);
+
+  assert.equal(calls, 1, 'the legacy content array must still be read');
+  assert.equal(event.effect, 'deny');
+
+  j.cleanup();
+});
+
+test('spawn-gate: parseNoulAnswer rejects values outside [0,1] and non-numbers', () => {
+  const body = (value) => ({ answers: { q: { type: 'noul', noul: value } } });
+
+  assert.equal(parseNoulAnswer(body(0), 'q'), 0);
+  assert.equal(parseNoulAnswer(body(0.9), 'q'), 0.9);
+  assert.equal(parseNoulAnswer(body(1), 'q'), 1);
+
+  for (const bad of [1.5, -0.1, NaN, Infinity, -Infinity, '0.9', null, undefined, true, {}, []]) {
+    assert.equal(parseNoulAnswer(body(bad), 'q'), null, `must reject ${String(bad)}`);
+  }
+});
+
+test('spawn-gate: a frozen event does not consume a cap slot and the journal stays truthful', async () => {
+  const j = spawnEnv();
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '1 failed')] });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return noulBody(0.99, 0.99); } }),
+  });
+
+  // A frozen event makes `event.effect = 'deny'` throw before any deny lands.
+  const frozen = Object.freeze({
+    sessionID: 'frozen-session',
+    agent: 'orchestrator',
+    action: 'subagent',
+    resources: ['reviewer'],
+    effect: 'allow',
+  });
+  await assert.doesNotReject(() => captured.evaluate(frozen));
+  assert.equal(frozen.effect, 'allow', 'the frozen event must be unchanged');
+
+  const afterFrozen = j.read();
+  assert.ok(!/decision=deny\b/.test(afterFrozen), 'no deny may be journaled when the assignment failed');
+  assert.match(afterFrozen, /decision=allow/, 'the run must journal allow truthfully');
+
+  // The cap slot was NOT consumed: two further denies for the same session land.
+  const first = reviewerEvent('frozen-session');
+  const second = reviewerEvent('frozen-session');
+  await captured.evaluate(first);
+  await captured.evaluate(second);
+  assert.equal(first.effect, 'deny');
+  assert.equal(second.effect, 'deny');
+
+  j.cleanup();
+});
+
+test('spawn-gate: a partially-applied deny is rolled back and does not consume a cap slot', async () => {
+  const j = spawnEnv();
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '1 failed')] });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return noulBody(0.99, 0.99); } }),
+  });
+
+  // `effect` is assignable, but the `message` setter throws — the deny is
+  // applied then partially fails, so the effect must be rolled back.
+  const partial = {
+    sessionID: 'partial-session',
+    agent: 'orchestrator',
+    action: 'subagent',
+    resources: ['reviewer'],
+    effect: 'allow',
+    set message(_value) { throw new Error('message setter boomed'); },
+  };
+  await assert.doesNotReject(() => captured.evaluate(partial));
+  assert.equal(partial.effect, 'allow', 'the effect must be rolled back');
+  assert.ok(!/decision=deny\b/.test(j.read()), 'no deny may be journaled for a rolled-back apply');
+
+  const first = reviewerEvent('partial-session');
+  const second = reviewerEvent('partial-session');
+  await captured.evaluate(first);
+  await captured.evaluate(second);
+  assert.equal(first.effect, 'deny');
+  assert.equal(second.effect, 'deny');
+
+  j.cleanup();
+});
+
+test('spawn-gate: the deny-session map is bounded and evicts the oldest session', async () => {
+  const j = spawnEnv();
+  const { ctx, captured } = captureSpawnGate({ messages: [transcriptMessage('tool', '1 failed')] });
+  registerSpawnGate(ctx, {
+    env: j.env,
+    spawnGateMaxTrackedSessions: 2,
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return noulBody(0.99, 0.99); } }),
+  });
+
+  assert.equal(SPAWN_GATE_MAX_TRACKED_SESSIONS, 256);
+
+  // Sessions A and B each spend their 2-deny cap; with a bound of 2 they fill it.
+  for (const session of ['A', 'A', 'B', 'B']) {
+    await captured.evaluate(reviewerEvent(session));
+  }
+
+  // Denying C inserts a third session, evicting the oldest (A).
+  const c = reviewerEvent('C');
+  await captured.evaluate(c);
+  assert.equal(c.effect, 'deny');
+
+  // A's entry was evicted, so A starts a fresh cap instead of being capped.
+  const a = reviewerEvent('A');
+  await captured.evaluate(a);
+  assert.equal(a.effect, 'deny', 'the evicted session must start with a fresh cap');
+
+  j.cleanup();
 });

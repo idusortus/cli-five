@@ -35,12 +35,14 @@ export const ADDONS = {
     name: 'jev',
     label: 'Jev',
     description:
-      'Tier-routing tool for the Planner (real Jev when a credential resolves; local heuristic otherwise; test-gate parked).',
-    // Not a bare boolean: jev ships tier-routing ONLY. The test-gate half is
-    // parked because OpenCode plugin hooks don't fire under OpenChamber routing.
+      'Tier routing for the Planner (real Jev when a credential resolves; local heuristic otherwise), plus an opt-in Jev-gated Reviewer-spawn gate that is off by default; the original tool-interception test-gate stays parked.',
+    // Not a bare boolean: jev ships tier routing plus an OPT-IN spawn gate. The
+    // gate is off by default, switchable at runtime via `.opencode/jev.json`
+    // (env `CLI_FIVE_JEVR_SPAWN_GATE` overrides it for standalone/CI). The
+    // original test-gate (tool-interception hooks) remains parked.
     available: true,
-    capability: 'tier-routing only',
-    status: `${JEVR_STATUS}; test-gate parked — ${TEST_GATE_ISSUE}`,
+    capability: 'tier routing + opt-in spawn gate',
+    status: `${JEVR_STATUS}; opt-in spawn gate off by default (enable via .opencode/jev.json or CLI_FIVE_JEVR_SPAWN_GATE); test-gate parked — ${TEST_GATE_ISSUE}`,
     platforms: ['opencode'],
     detect: detectJev,
     run: runJev,
