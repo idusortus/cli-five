@@ -60,3 +60,12 @@ Every hook firing, and every failure to register or fire one, SHALL be appended 
 #### Scenario: Registration failure is journaled
 - **WHEN** a hook cannot be registered
 - **THEN** a journal line records the failure reason
+
+## Candidates — not approved, do not implement
+
+The requirements above describe the **shipped spike**, which classifies every admission (root and child) through the full credential-gated path. The **routing policy is pending a user decision** (see `design.md` → "Design Decision — PENDING USER DECISION"). The following is recorded as a candidate only; it is not a requirement and MUST NOT be implemented until approved.
+
+- **Hybrid candidate:** one real-Jev classification at the **root** session; **child sessions classify their own delegation text with the free local heuristic** (no additional API call). Rationale: keeps API cost at one call per user turn while preserving a tier signal for narrow delegations inside a broad turn — the case where the "inherit" option (A) loses information.
+- Candidate options **A** (inherit), **B** (classify every session — current shipped behaviour) and **C** (primary only) remain open and unapproved.
+- Constraint applying to **all** candidates, established by measurement: hook-based tier routing is **advisory** — the injected tier is a system instruction the model may ignore. It is not a gate. See `design.md` → "Findings".
+

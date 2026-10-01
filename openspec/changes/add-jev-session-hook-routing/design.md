@@ -70,4 +70,57 @@ No data migration. After the spike: if the hooks fire and injection works, promo
 
 ## Open Questions
 
-- Whether the `prompt` hook awaits an async handler before admitting the prompt — answerable from journal timestamps versus the transcript, and it does not change the specs either way.
+- ~~Whether the `prompt` hook awaits an async handler before admitting the prompt.~~ **Answered by measurement:** yes — in the spike's live run the async classification completed (journal: `prompt fired` → `prompt classified`) and the injected instruction reached the model on the same turn.
+
+## Findings — what session hooks can actually do (measured)
+
+Method: a throwaway control-file-driven probe plugin at `/tmp/opencode/probe-repo/.opencode/plugin/hook-probe/` (logs to `/tmp/opencode/hook-probe.log`), run against real `opencode run --standalone` sessions with agent `orchestrator` and subagents on `opencode v2.0.17`. **Nothing in this repo was modified to obtain these results.**
+
+Every row below is **measured** unless the row says otherwise.
+
+### `prompt` hook
+
+| Capability | Result |
+|---|---|
+| Mutating `event.prompt.text` | **Reaches the model.** A marker appended by the hook was echoed verbatim by the model in its reply. |
+| Return value affects flow | **No effect.** Returning `{ rejected: true }` still admitted the prompt; run exited 0. (Matches the docs: "transform input and do not expose a typed rejection API".) |
+| Throwing — root session | **Fatal to the run.** Exit 1, `UnexpectedStatus: 500`, prompt not admitted (the `context` hook never fired). The hook's error text was not surfaced to the caller. |
+| Throwing — child (subagent) session | **Contained, but reaches the parent as a tool error.** The parent did not crash (exit 0); its `subagent` tool returned `{"error":{"type":"unknown","message":"PROBE_CHILD_THROW"},"content":[]}`. |
+| Event shape | `[sessionID, messageID, prompt, metadata, delivery]`; `prompt` = `[text, files, agents, skills]`; **no `agent` field**. |
+
+### `context` hook
+
+| Capability | Result |
+|---|---|
+| Inject a fabricated message into model context | **Yes.** A pushed user message was acknowledged by the model (it referenced the injected text). |
+| Injected message is obeyed as an instruction | **No.** The model identified it as an embedded instruction and declined. (Run-to-run variance: one run ignored it silently, one explicitly named it.) |
+| Remove tools from the model's toolset | **Yes.** Deleting `write, edit, shell` removed write capability: no file was created and the model reported no write tool. Deleting only `write` did *not* prevent file creation (remaining tools bypassed it). |
+| Override the model in place (`event.model.id = …`) | **Banner changed** (`deepseek-v4.1-flash` → `kimi-k2.7-code`). |
+| Replace the `event.model` object reference | **No effect** — banner unchanged. |
+| Event shape | `[sessionID, model, system, messages, options, agent, tools]`; carries `agent` (`orchestrator` vs `planner`/`coder`). Fires **for child/subagent sessions too**, and multiple times per turn. |
+
+### Still `unknown` (not measured — do not claim)
+
+- Whether the `event.model` override changes the **actual inference backend** (only the reported banner was observed).
+- Mutation of `event.system`, `event.options`, or `event.agent` (not tested).
+- Whether `prompt`-hook edits persist into stored history (docs assert "edits become the canonical persisted user input"; **inferred from docs**, not verified here).
+
+### Documented-vs-measured contract cross-check
+
+The local SDK (`@opencode-ai/plugin` v1.18.31) predates the session-hook types — there is no `session.d.ts` and no `SessionPrompt`/`SessionContextHook` export in it — so the only available written contract is the V2 plugin documentation. Where both exist they agree, with one correction: the docs' "synthetic messages … do not run the hook" does **not** cover subagent launches. Subagent admission **does** fire the `prompt` hook (measured), so that sentence refers to `ctx.session.synthetic(...)`/shell/compaction/move only.
+
+## Design Decision — PENDING USER DECISION
+
+The routing **policy** is undecided. Options under consideration (none approved):
+
+| Option | Mechanism | Status |
+|---|---|---|
+| **A — inherit** | Classify once at the root; child sessions inherit the root's tier. | **Has a known flaw**, see below. |
+| **B — classify every session** | Classify each admission independently. This is what the *shipped spike already does*. | Not chosen; not verified as intended. |
+| **C — primary only** | Inject for the primary agent only; subagents fall back to the `tier_classifier` tool. | Not chosen. |
+| **Hybrid candidate** | One real-Jev classification at the root session; child sessions classify their **own delegation text** with the **local heuristic** (no second API call). | Candidate only — recorded in `specs/jev-session-routing/spec.md`. Not approved. Do not build. |
+
+**Known flaw in option A:** A's mechanism is "don't reclassify — inherit". A trivial delegation inside a `major` turn (e.g. "rename this variable") would therefore inherit `major`, discarding the tier signal for any turn with breadth.
+
+**Newly available constraint on all options:** the classification is only ever **advisory**. Even with the hooks working, the injected tier is a system instruction the model may ignore (measured: the model declined an injected message it judged to be an embedded instruction). The platform *does* have enforcement surfaces — `event.tools` deletion was measured to work, and the docs show a `ctx.permission.hook("evaluate")` with a mutable `event.effect` — but nothing in this change uses them, and using them would be a different design.
+

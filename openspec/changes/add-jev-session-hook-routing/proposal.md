@@ -38,6 +38,8 @@ The shipped `tier_classifier` tool is **advisory**: the Planner must choose to c
 
 **Verification scope:** hooks are exercised in a real OpenCode session; whether they fire under OpenChamber's managed server specifically is the open question this spike exists to answer, and the log is the evidence.
 
-## Outcome (decided after the spike)
+## Outcome — PENDING USER DECISION
 
-Keep the deterministic path as primary if hooks fire under OpenChamber; otherwise retain the tool-only path and record the platform limitation in `decisions.md`.
+The spike's *platform* question is answered: session hooks fire (including for subagent sessions). The routing **policy is not decided.** Options A (inherit), B (classify every session — which is what the shipped spike currently does), C (primary only) and the hybrid candidate are all pending; see `design.md` → "Design Decision — PENDING USER DECISION" and "Findings".
+
+Do **not** implement any routing policy until the user decides. The spike's own tasks are complete; this decision is separate from them and the change must not be archived on the strength of it.

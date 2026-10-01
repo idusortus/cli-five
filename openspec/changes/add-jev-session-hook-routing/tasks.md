@@ -11,6 +11,7 @@
 
 - [x] 2.1 Cover fail-open inside the hook: a thrown/failed classification still yields the local heuristic's result and never rejects. Verify: a test with a failing `fetchImpl` asserts the cached result is `source: 'local_heuristic'` and the hook promise resolves.
 - [x] 2.2 Keep the existing suite green. Verify: `npm test` passes and `npm run lint` is clean.
+- [x] 2.3 Harden the hook fail-open surface: wrap the entire `prompt` and `context` handler bodies in try/catch (journal exactly one `hooks: <name> hook fail-open:` line and return without touching the event), tolerate a thenable with a throwing `then` accessor in `register()`, and guard the `registerSessionHooks(ctx)` call in `setup()` so plugin load cannot reject. Verify: forced-failure tests for a throwing `Symbol.toPrimitive` on `sessionID`/`prompt.text`, a frozen `event.system`, an unwritable journal target, malformed/empty events, a rejecting `fetchImpl`, a hang past the timeout, and a throwing-`then` thenable all resolve/return without throwing.
 
 ## 3. Docs
 
