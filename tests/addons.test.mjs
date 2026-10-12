@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -11,9 +11,25 @@ import {
   getAddon,
   listAddons,
 } from '../src/addons/registry.mjs';
+import { runCodegraph } from '../src/addons/codegraph-command.mjs';
 
 function workspace() {
   return mkdtempSync(join(tmpdir(), 'cli-five-addons-'));
+}
+
+function captureStdout() {
+  const original = process.stdout.write;
+  let buffer = '';
+  process.stdout.write = (chunk) => {
+    buffer += String(chunk);
+    return true;
+  };
+  return {
+    restore() {
+      process.stdout.write = original;
+      return buffer;
+    },
+  };
 }
 
 test('registry lists codegraph, jev, and openspec as available with status objects', () => {
@@ -36,6 +52,7 @@ test('registry lists codegraph, jev, and openspec as available with status objec
   assert.ok(/https?:\/\//.test(jev.status), 'jev status must link the tracked test-gate issue');
   assert.ok(!/jev-harness/.test(jev.status), 'obsolete jev-harness rationale must be gone');
   assert.ok(/off by default/.test(jev.status), 'jev status must say the spawn gate is off by default');
+  assert.ok(/hooks off by default/.test(jev.status), 'jev status must say session hooks are off by default');
   assert.ok(
     /jev\.json|CLI_FIVE_JEVR_SPAWN_GATE/.test(jev.status),
     'jev status must name the runtime spawn-gate switch',
@@ -102,5 +119,46 @@ test('detectJev finds the plugin dir and opencode.json plugins[] entry', () => {
   assert.ok(signals.some((s) => s.includes('jev-tier-router')));
   assert.ok(signals.some((s) => s.includes('opencode.json')));
 
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ── runCodegraph: README plan symbols + fail-open ─────────────────────
+
+test('add codegraph prints the README plan symbols (+, =)', async () => {
+  const dir = workspace();
+  mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
+
+  const first = captureStdout();
+  await runCodegraph({ cwd: dir, args: {} });
+  const created = first.restore();
+  assert.match(created, /\+\s+opencode\.json/, 'a created file uses +');
+  assert.match(created, /\+\s+AGENTS\.md/, 'a created file uses +');
+
+  const second = captureStdout();
+  await runCodegraph({ cwd: dir, args: {} });
+  const unchanged = second.restore();
+  assert.match(unchanged, /=\s+opencode\.json/, 'an unchanged file uses =');
+  assert.match(unchanged, /=\s+AGENTS\.md/, 'an unchanged file uses =');
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('runCodegraph warns and exits non-zero on a malformed opencode.json', async () => {
+  const dir = workspace();
+  mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
+  writeFileSync(join(dir, 'opencode.json'), '{ not valid json');
+  const before = process.exitCode;
+
+  const capture = captureStdout();
+  const touched = await runCodegraph({ cwd: dir, args: {} });
+  const printed = capture.restore();
+
+  assert.deepEqual(touched, [], 'no files are reported as touched');
+  assert.equal(process.exitCode, 1, 'a malformed target sets a non-zero exit code');
+  assert.match(printed, /Skipped CodeGraph registration/);
+  assert.equal(readFileSync(join(dir, 'opencode.json'), 'utf8'), '{ not valid json', 'malformed file untouched');
+  assert.ok(!existsSync(join(dir, 'AGENTS.md')), 'no other files are written after the failure');
+
+  process.exitCode = before;
   rmSync(dir, { recursive: true, force: true });
 });

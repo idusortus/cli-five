@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { PROVIDER_ZEN, PROVIDER_GO } from './models.mjs';
+import { resolveOpencodeAuthCandidates, opencodeStoreProviderIds } from './opencode-auth.mjs';
 
 // OpenCode auth provider id -> cli-five provider id.
 // Zen authenticates as `opencode`; Go as `opencode-go`.
@@ -45,24 +44,33 @@ function authFromCli() {
 }
 
 function authFromFile() {
-  const candidates = [
-    process.env.OPENCODE_AUTH_FILE,
-    join(homedir(), '.local', 'share', 'opencode', 'auth.json'),
-    join(process.env.XDG_DATA_HOME || '', 'opencode', 'auth.json'),
-  ].filter(Boolean);
-
-  for (const path of candidates) {
+  for (const path of resolveOpencodeAuthCandidates()) {
     if (!existsSync(path)) continue;
     try {
       const data = JSON.parse(readFileSync(path, 'utf8'));
-      return Object.keys(data)
-        .map((id) => AUTH_ID_TO_PROVIDER[id])
-        .filter(Boolean);
+      return providerIdsFromStore(data);
     } catch {
       /* try next */
     }
   }
   return null;
+}
+
+/**
+ * Map a parsed `auth.json` to cli-five provider ids.
+ *
+ * The store itself is read by the shared `opencodeStoreProviderIds` helper (the
+ * same implementation the Jev plugin vendors), so cli-five does not parse the
+ * credential shape independently. This function only maps the shared reader's
+ * OpenCode ids through `AUTH_ID_TO_PROVIDER`.
+ */
+function providerIdsFromStore(data) {
+  const ids = [];
+  for (const opencodeId of opencodeStoreProviderIds(data)) {
+    const provider = AUTH_ID_TO_PROVIDER[opencodeId];
+    if (provider && !ids.includes(provider)) ids.push(provider);
+  }
+  return ids;
 }
 
 /**

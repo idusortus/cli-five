@@ -91,9 +91,10 @@ STEP 4 — OPENSPEC
 
 STEP 5 — OPENCHAMBER (nothing to install)
 - OpenChamber is a client that opens OpenCode repos; there is no per-repo config to
-  write. Note only that it can open this repo, and that OpenCode plugin hooks do not
-  fire under OpenChamber's embedded-server routing, so anything relying on plugin
-  interception is inert there.
+  write. Note only that it can open this repo. Measured: OpenCode's V2 session and
+  permission hook families DO fire under OpenChamber's managed-server routing; the old
+  "plugin hooks do not fire" belief came from the V1 *tool-interception* hooks
+  (`tool.execute.before` / `permission.ask`) and never applied to the V2 family.
 
 STEP 6 — VERIFY (this is the point; "files exist" != "it works")
 - `opencode reload`, then `opencode debug agents` -> the agent team is registered.

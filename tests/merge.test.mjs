@@ -119,3 +119,61 @@ test('mergeBlock rejects invalid JSON input', () => {
   assert.throws(() => mergeBlock(file, 'codegraph', { a: 1 }), /not valid JSON/);
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('mergeBlock repairs a lone START fence instead of appending a second block', () => {
+  const dir = workspace();
+  const file = join(dir, 'AGENTS.md');
+  writeFileSync(file, '<!-- FOO_START -->\nexisting text');
+
+  const result = mergeBlock(file, 'foo', 'new body');
+  assert.equal(result.action, 'updated');
+
+  const out = readFileSync(file, 'utf8');
+  assert.equal((out.match(/FOO_START/g) || []).length, 1, 'exactly one START fence');
+  assert.equal((out.match(/FOO_END/g) || []).length, 1, 'exactly one END fence');
+  assert.ok(out.includes('new body'));
+  assert.ok(!out.includes('existing text'), 'the stray body is replaced');
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('mergeBlock repairs a lone START fence and preserves content before it', () => {
+  const dir = workspace();
+  const file = join(dir, 'AGENTS.md');
+  writeFileSync(file, '# Title\n\nBefore.\n<!-- FOO_START -->\nstray tail');
+
+  mergeBlock(file, 'foo', 'body');
+
+  const out = readFileSync(file, 'utf8');
+  assert.ok(out.includes('# Title'));
+  assert.ok(out.includes('Before.'));
+  assert.ok(!out.includes('stray tail'));
+  assert.equal((out.match(/FOO_START/g) || []).length, 1);
+  assert.equal((out.match(/FOO_END/g) || []).length, 1);
+
+  // Repair converges: the next call is an in-place update, then a no-op.
+  const updated = mergeBlock(file, 'foo', 'body two');
+  assert.equal(updated.action, 'updated');
+  assert.equal((readFileSync(file, 'utf8').match(/FOO_START/g) || []).length, 1);
+  const unchanged = mergeBlock(file, 'foo', 'body two');
+  assert.equal(unchanged.action, 'unchanged');
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('mergeBlock updates an intact fence pair in place without duplication', () => {
+  const dir = workspace();
+  const file = join(dir, 'AGENTS.md');
+  writeFileSync(file, '<!-- FOO_START -->\nold\n<!-- FOO_END -->\n');
+
+  const result = mergeBlock(file, 'foo', 'updated body');
+  assert.equal(result.action, 'updated');
+
+  const out = readFileSync(file, 'utf8');
+  assert.equal((out.match(/FOO_START/g) || []).length, 1, 'one START fence');
+  assert.equal((out.match(/FOO_END/g) || []).length, 1, 'one END fence');
+  assert.ok(out.includes('updated body'));
+  assert.ok(!out.includes('old'));
+
+  rmSync(dir, { recursive: true, force: true });
+});

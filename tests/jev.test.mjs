@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import plugin, {
   __testables as pluginTestables,
 } from '../templates/opencode/plugin/jev-tier-router/index.js';
-import { runJev, JEVR_TOOL } from '../src/addons/jev.mjs';
+import { runJev, JEVR_TOOL, JEVR_STATUS } from '../src/addons/jev.mjs';
 import { mergeBlock } from '../src/util/merge.mjs';
 
 const {
@@ -411,7 +411,7 @@ test('no credential: classifyTaskWithJev returns null without attempting', async
 test('a skipped remote path journals a hint and never the key', async () => {
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
-  await classifyWithJev('fix a typo', { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  await classifyWithJev('fix a typo', { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   const body = readFileSync(logFile, 'utf8');
   assert.match(body, /tier_classifier/);
@@ -454,7 +454,7 @@ test('journaling: opts.projectDir selects the default sink and CLI_FIVE_LOGFILE 
   assert.match(readFileSync(projectLog, 'utf8'), /probe-project-dir/);
 
   // CLI_FIVE_LOGFILE wins over opts.projectDir.
-  journal('probe-explicit-logfile', { env: { CLI_FIVE_LOGFILE: logFile }, projectDir });
+  journal('probe-explicit-logfile', { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, projectDir });
   assert.ok(existsSync(logFile), 'CLI_FIVE_LOGFILE must still win');
   assert.match(readFileSync(logFile, 'utf8'), /probe-explicit-logfile/);
   assert.ok(
@@ -582,7 +582,7 @@ test('hooks: the prompt hook classifies and never mutates the prompt text', asyn
   const { ctx, captured } = captureSessionHooks();
   const fetchImpl = async () => ({ ok: true, status: 200, async json() { return LIVE_RESPONSE; } });
 
-  registerSessionHooks(ctx, { env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
   assert.equal(typeof captured.prompt, 'function', 'the prompt hook must be registered');
 
   const event = { sessionID: 's1', prompt: { text: 'fix a typo in README' } };
@@ -604,7 +604,7 @@ test('hooks: the context hook injects the cached tier as a system instruction', 
   const { ctx, captured } = captureSessionHooks();
   const fetchImpl = async () => ({ ok: true, status: 200, async json() { return LIVE_RESPONSE; } });
 
-  registerSessionHooks(ctx, { env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
   await captured.prompt({ sessionID: 's2', prompt: { text: 'fix a typo in README' } });
 
   const event = { sessionID: 's2', system: [] };
@@ -626,7 +626,7 @@ test('hooks: the context hook does not bleed one session\'s tier into another', 
   const { ctx, captured } = captureSessionHooks();
   const fetchImpl = async () => ({ ok: true, status: 200, async json() { return LIVE_RESPONSE; } });
 
-  registerSessionHooks(ctx, { env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
   await captured.prompt({ sessionID: 'session-y', prompt: { text: 'fix a typo in README' } });
 
   // Session X was never classified: it must NOT receive session Y's result.
@@ -648,7 +648,7 @@ test('hooks: the context hook uses the last result only when the event has no se
   const { ctx, captured } = captureSessionHooks();
   const fetchImpl = async () => ({ ok: true, status: 200, async json() { return LIVE_RESPONSE; } });
 
-  registerSessionHooks(ctx, { env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
   await captured.prompt({ sessionID: 's3', prompt: { text: 'fix a typo in README' } });
 
   const event = { system: [] }; // no sessionID at all
@@ -666,7 +666,7 @@ test('hooks: the context hook journals a firing even with no cached classificati
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
 
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile } });
 
   const event = { sessionID: 'none', system: [] };
   assert.doesNotThrow(() => captured.context(event));
@@ -684,7 +684,7 @@ test('hooks: a non-array event.system is journaled and not thrown on', async () 
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
 
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   // Classify first (no credential: local heuristic) so the context hook has a
   // cached result and reaches the system-shape guard.
@@ -735,7 +735,7 @@ test('hooks: a failed classification still resolves fail-open to the local heuri
     throw new TypeError('fetch failed');
   };
 
-  registerSessionHooks(ctx, { env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile }, fetchImpl });
 
   // Must resolve, not reject.
   await assert.doesNotReject(() => captured.prompt({ sessionID: 's4', prompt: { text: 'fix a typo in README' } }));
@@ -761,7 +761,7 @@ test('hooks: a rejected registration is journaled and does not break plugin load
     },
   };
 
-  assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }));
+  assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile } }));
   assert.match(readFileSync(logFile, 'utf8'), /hooks: failed to register prompt hook: registration refused/);
 
   rmSync(dir, { recursive: true, force: true });
@@ -783,7 +783,7 @@ test('hooks: an async-rejected registration is journaled and does not surface un
       },
     };
 
-    assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }));
+    assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile } }));
 
     // Let both returned promises settle and any unhandled rejection fire.
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -820,7 +820,7 @@ test('hooks(a): prompt resolves when fetchImpl throws (classification fails inte
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
   registerSessionHooks(ctx, {
-    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
     fetchImpl: async () => {
       throw new TypeError('fetch failed');
     },
@@ -843,7 +843,7 @@ test('hooks(a2): prompt resolves when classifyWithJev throws outright', async ()
   // otherwise-guarded attemptJev (and thus classifyWithJev) throws before its
   // own try, proving the hook's catch is the last line of defence.
   registerSessionHooks(ctx, {
-    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
     get fetchImpl() {
       throw new Error('fetchImpl getter exploded');
     },
@@ -863,7 +863,7 @@ test('hooks(b): prompt resolves when fetchImpl rejects', async () => {
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
   registerSessionHooks(ctx, {
-    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
     fetchImpl: async () => Promise.reject(new Error('network down')),
   });
 
@@ -887,7 +887,7 @@ test('hooks(c): prompt resolves when fetchImpl hangs past the timeout', async ()
       });
     });
   registerSessionHooks(ctx, {
-    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
     fetchImpl,
     timeoutMs: 10,
   });
@@ -904,7 +904,7 @@ test('hooks(d1): prompt resolves on a non-JSON response body', async () => {
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
   registerSessionHooks(ctx, {
-    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
     fetchImpl: async () => ({
       ok: true,
       status: 200,
@@ -926,7 +926,7 @@ test('hooks(d2): prompt resolves on a JSON body with the wrong shape', async () 
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
   registerSessionHooks(ctx, {
-    env: { OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
+    env: { CLI_FIVE_JEVR_HOOKS: '1', OPENCODE_API_KEY: 'k', CLI_FIVE_LOGFILE: logFile },
     fetchImpl: async () => ({
       ok: true,
       status: 200,
@@ -952,7 +952,7 @@ test('hooks(e): an unwritable journal target never throws', async () => {
 
   const { ctx, captured } = captureSessionHooks();
   assert.doesNotThrow(() =>
-    registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }),
+    registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile } }),
   );
   assert.equal(typeof captured.prompt, 'function');
   assert.equal(typeof captured.context, 'function');
@@ -969,7 +969,7 @@ test('hooks(f): prompt tolerates missing/odd event fields', async () => {
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   for (const event of [undefined, {}, { prompt: null }, { prompt: { text: null } }]) {
     await assert.doesNotReject(() => captured.prompt(event), `prompt must not reject for ${JSON.stringify(event)}`);
@@ -981,7 +981,7 @@ test('hooks(f2): context tolerates missing/odd event fields', () => {
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   for (const event of [undefined, {}, { system: null }, { system: 'nope' }]) {
     assert.doesNotThrow(() => captured.context(event), `context must not throw for ${JSON.stringify(event)}`);
@@ -993,7 +993,7 @@ test('hooks(g1): prompt fail-opens on a hostile sessionID coercion', async () =>
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   const event = { sessionID: hostileCoercion('sessionID boomed'), prompt: { text: 'fix a typo' } };
   await assert.doesNotReject(() => captured.prompt(event));
@@ -1007,7 +1007,7 @@ test('hooks(g2): prompt fail-opens on a hostile prompt.text coercion', async () 
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   const event = { sessionID: 'g2', prompt: { text: hostileCoercion('prompt text boomed') } };
   await assert.doesNotReject(() => captured.prompt(event));
@@ -1021,7 +1021,7 @@ test('hooks(g3): context fail-opens on a hostile sessionID coercion', () => {
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   const event = { sessionID: hostileCoercion('context sessionID boomed'), system: [] };
   assert.doesNotThrow(() => captured.context(event));
@@ -1035,7 +1035,7 @@ test('hooks(g4): a plain Symbol sessionID is String()-safe (documents non-throw)
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   const event = { sessionID: Symbol('x'), prompt: { text: 'fix a typo' } };
   await assert.doesNotReject(() => captured.prompt(event));
@@ -1049,7 +1049,7 @@ test('hooks(h): context fail-opens when event.system is frozen', async () => {
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
   await captured.prompt({ sessionID: 'h1', prompt: { text: 'fix a typo in README' } });
 
   const frozen = Object.freeze([]);
@@ -1074,7 +1074,7 @@ test('hooks(i): registerSessionHooks survives a thenable with a throwing then ge
     },
   };
 
-  assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }));
+  assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile } }));
   assert.match(readFileSync(logFile, 'utf8'), /hooks: failed to register prompt hook: then getter exploded/);
 
   rmSync(dir, { recursive: true, force: true });
@@ -1095,10 +1095,17 @@ test('hooks(j): a rejecting ctx.session.get is never called; hooks still registe
     tool: { transform: async (fn) => fn({ add: () => {} }) },
   };
 
-  await assert.doesNotReject(() => withDefaultJournal(() => plugin.setup(ctx)));
-  assert.equal(getCalls, 0, 'the plugin must not depend on ctx.session.get');
-  assert.equal(typeof captured.prompt, 'function', 'the prompt hook must still register');
-  assert.equal(typeof captured.context, 'function', 'the context hook must still register');
+  const previousHooks = process.env.CLI_FIVE_JEVR_HOOKS;
+  process.env.CLI_FIVE_JEVR_HOOKS = '1';
+  try {
+    await assert.doesNotReject(() => withDefaultJournal(() => plugin.setup(ctx)));
+    assert.equal(getCalls, 0, 'the plugin must not depend on ctx.session.get');
+    assert.equal(typeof captured.prompt, 'function', 'the prompt hook must still register');
+    assert.equal(typeof captured.context, 'function', 'the context hook must still register');
+  } finally {
+    if (previousHooks === undefined) delete process.env.CLI_FIVE_JEVR_HOOKS;
+    else process.env.CLI_FIVE_JEVR_HOOKS = previousHooks;
+  }
 
   rmSync(dir, { recursive: true, force: true });
 });
@@ -1131,7 +1138,7 @@ test('hooks(k1): prompt resolves when the caught value has a throwing message ge
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   const event = { sessionID: throwsValue(hostileThrown()), prompt: { text: 'x' } };
   await assert.doesNotReject(() => captured.prompt(event));
@@ -1145,7 +1152,7 @@ test('hooks(k2): prompt resolves when the caught value has a throwing message ge
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   const event = { sessionID: 'k2', prompt: { text: throwsValue(hostileThrown()) } };
   await assert.doesNotReject(() => captured.prompt(event));
@@ -1159,7 +1166,7 @@ test('hooks(k3): context does not throw when the caught value has a throwing mes
   const dir = workspace();
   const logFile = join(dir, 'jev.log');
   const { ctx, captured } = captureSessionHooks();
-  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
 
   const event = { sessionID: throwsValue(hostileThrown()), system: [] };
   assert.doesNotThrow(() => captured.context(event));
@@ -1174,7 +1181,7 @@ test('hooks(l1): a sync registration throw of a hostile value is journaled, neve
   const logFile = join(dir, 'jev.log');
   const ctx = { session: { hook: () => { throw hostileThrown(); } } };
 
-  assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }));
+  assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile } }));
   assert.match(readFileSync(logFile, 'utf8'), /hooks: failed to register prompt hook: unknown error/);
 
   rmSync(dir, { recursive: true, force: true });
@@ -1193,7 +1200,7 @@ test('hooks(l2): an async rejection of a hostile value yields no unhandled rejec
       },
     };
 
-    assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile } }));
+    assert.doesNotThrow(() => registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile } }));
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     assert.equal(unhandled, null, 'a hostile rejection value must not become an unhandled rejection');
@@ -1242,6 +1249,7 @@ test('runJev scaffolds the plugin and wires opencode.json + AGENTS.md', async ()
   const pluginDir = join(dir, '.opencode', 'plugin', 'jev-tier-router');
   assert.ok(existsSync(join(pluginDir, 'index.js')));
   assert.ok(existsSync(join(pluginDir, 'package.json')));
+  assert.ok(existsSync(join(pluginDir, 'auth.mjs')), 'the vendored auth.mjs is copied on first install');
   const pkg = JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8'));
   assert.equal(pkg.type, 'module');
   assert.equal(pkg.exports['.'], './index.js');
@@ -1262,8 +1270,15 @@ test('runJev scaffolds the plugin and wires opencode.json + AGENTS.md', async ()
   assert.match(agents, /free on OpenCode/, 'the fence must note Jev is available on OpenCode');
   assert.match(agents, /confidence` >= 0\.6/, 'the threshold semantics must be preserved');
   assert.match(agents, /default to `major`/);
+  assert.match(agents, /off by default/, 'the fence must describe hooks as off by default');
+  assert.match(agents, /CLI_FIVE_JEVR_HOOKS=1/, 'the fence must name the env opt-in');
 
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('JEVR_STATUS describes session hooks as off by default', () => {
+  assert.match(JEVR_STATUS, /hooks off by default/);
+  assert.match(JEVR_STATUS, /CLI_FIVE_JEVR_HOOKS=1/);
 });
 
 test('runJev is idempotent — re-running does not duplicate plugin entries', async () => {
@@ -1313,6 +1328,195 @@ test('runJev refuses cleanly on a Copilot target with no partial writes', async 
   assert.ok(!existsSync(join(dir, 'AGENTS.md')), 'no AGENTS.md written');
 
   process.exitCode = before;
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ── add jev: dry-run + clobber guard ─────────────────────────────────
+
+function captureStdout() {
+  const original = process.stdout.write;
+  let buffer = '';
+  process.stdout.write = (chunk) => {
+    buffer += String(chunk);
+    return true;
+  };
+  return {
+    restore() {
+      process.stdout.write = original;
+      return buffer;
+    },
+  };
+}
+
+test('runJev --dry-run prints the plan and writes nothing', async () => {
+  const dir = workspace();
+  mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
+  writeFileSync(join(dir, 'opencode.json'), JSON.stringify({ model: 'keep-me' }, null, 2));
+  writeFileSync(join(dir, 'AGENTS.md'), '# Project\n\nKeep this.\n');
+
+  const opencodeBefore = readFileSync(join(dir, 'opencode.json'), 'utf8');
+  const agentsBefore = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+
+  const capture = captureStdout();
+  await runJev({ cwd: dir, args: { dryRun: true } });
+  const printed = capture.restore();
+
+  assert.ok(!existsSync(join(dir, '.opencode', 'plugin', 'jev-tier-router')), 'no plugin dir created');
+  assert.equal(readFileSync(join(dir, 'opencode.json'), 'utf8'), opencodeBefore, 'opencode.json unchanged');
+  assert.equal(readFileSync(join(dir, 'AGENTS.md'), 'utf8'), agentsBefore, 'AGENTS.md unchanged');
+
+  assert.match(printed, /--dry-run: no files written/);
+  assert.match(printed, /\+ .*package\.json/);
+  assert.match(printed, /\+ .*index\.js/);
+  assert.match(printed, /\+ .*auth\.mjs/);
+  assert.match(printed, /~ .*opencode\.json/);
+  assert.match(printed, /~ .*AGENTS\.md/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('runJev preserves existing plugin files on re-run unless --force', async () => {
+  const dir = workspace();
+  mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
+  await runJev({ cwd: dir });
+
+  const pluginDir = join(dir, '.opencode', 'plugin', 'jev-tier-router');
+  writeFileSync(join(pluginDir, 'index.js'), '// tuned index');
+  writeFileSync(join(pluginDir, 'auth.mjs'), '// tuned auth');
+  writeFileSync(join(pluginDir, 'package.json'), '{"name":"tuned"}\n');
+
+  await runJev({ cwd: dir });
+  assert.equal(readFileSync(join(pluginDir, 'index.js'), 'utf8'), '// tuned index', 're-run keeps tuned index.js');
+  assert.equal(readFileSync(join(pluginDir, 'auth.mjs'), 'utf8'), '// tuned auth', 're-run keeps tuned auth.mjs');
+  assert.equal(readFileSync(join(pluginDir, 'package.json'), 'utf8'), '{"name":"tuned"}\n', 're-run keeps tuned package.json');
+
+  await runJev({ cwd: dir, args: { force: true } });
+  assert.notEqual(readFileSync(join(pluginDir, 'index.js'), 'utf8'), '// tuned index', '--force refreshes index.js');
+  assert.notEqual(readFileSync(join(pluginDir, 'auth.mjs'), 'utf8'), '// tuned auth', '--force refreshes auth.mjs');
+  assert.equal(
+    JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8')).name,
+    'cli-five-jev-tier-router',
+    '--force refreshes package.json',
+  );
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('runJev reports honest status on an idempotent re-run (no false success lines)', async () => {
+  const dir = workspace();
+  mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
+  await runJev({ cwd: dir });
+
+  const capture = captureStdout();
+  await runJev({ cwd: dir });
+  const printed = capture.restore();
+
+  assert.ok(!/Plugin written/.test(printed), 'a preserved re-run must not claim the plugin was written');
+  assert.ok(!/Registered in opencode\.json/.test(printed), 'an unchanged config must not claim registration');
+  assert.ok(!/Planner instruction added/.test(printed), 'an unchanged AGENTS.md must not claim the instruction was added');
+  assert.match(printed, /Already up to date/);
+  assert.match(printed, /\. .*package\.json/, 'the plan still reports the skipped plugin files');
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('runJev warns and exits non-zero on a malformed opencode.json without throwing', async () => {
+  const dir = workspace();
+  mkdirSync(join(dir, '.opencode', 'agents'), { recursive: true });
+  writeFileSync(join(dir, 'opencode.json'), '{ not valid json');
+  const before = process.exitCode;
+
+  const capture = captureStdout();
+  await assert.doesNotReject(() => runJev({ cwd: dir }));
+  const printed = capture.restore();
+
+  assert.equal(process.exitCode, 1, 'a merge failure sets a non-zero exit code');
+  assert.match(printed, /Skipped opencode\.json/);
+  assert.equal(readFileSync(join(dir, 'opencode.json'), 'utf8'), '{ not valid json', 'malformed file untouched');
+
+  process.exitCode = before;
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ── Session hooks: opt-in default ────────────────────────────────────
+
+test('hooks: off by default, but the tool and spawn gate still register', async () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const previous = process.env.CLI_FIVE_JEVR_HOOKS;
+  const previousLog = process.env.CLI_FIVE_LOGFILE;
+  delete process.env.CLI_FIVE_JEVR_HOOKS;
+  process.env.CLI_FIVE_LOGFILE = logFile;
+  try {
+    const captured = {};
+    const added = [];
+    const ctx = {
+      session: { hook: (name, fn) => { captured[name] = fn; } },
+      permission: {
+        hook: (name, fn) => { captured[`perm:${name}`] = fn; return Promise.resolve({ dispose() {} }); },
+      },
+      tool: { transform: async (fn) => fn({ add: (t) => added.push(t) }) },
+    };
+
+    await plugin.setup(ctx);
+
+    assert.equal(captured.prompt, undefined, 'the prompt hook must not register by default');
+    assert.equal(captured.context, undefined, 'the context hook must not register by default');
+    assert.equal(typeof captured['perm:evaluate'], 'function', 'the spawn gate must still register');
+    assert.equal(added.length, 1, 'the tier_classifier tool must still register');
+    assert.match(readFileSync(logFile, 'utf8'), /hooks: off by default/);
+  } finally {
+    if (previous === undefined) delete process.env.CLI_FIVE_JEVR_HOOKS;
+    else process.env.CLI_FIVE_JEVR_HOOKS = previous;
+    if (previousLog === undefined) delete process.env.CLI_FIVE_LOGFILE;
+    else process.env.CLI_FIVE_LOGFILE = previousLog;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hooks: CLI_FIVE_JEVR_HOOKS=1 registers the hooks', () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  const { ctx, captured } = captureSessionHooks();
+
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '1', CLI_FIVE_LOGFILE: logFile }, readFile: throwingRead });
+
+  assert.equal(typeof captured.prompt, 'function', 'the prompt hook must register');
+  assert.equal(typeof captured.context, 'function', 'the context hook must register');
+  assert.match(readFileSync(logFile, 'utf8'), /enabled by CLI_FIVE_JEVR_HOOKS=1/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks: .opencode/jev.json "hooks": true enables the hooks', () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  mkdirSync(join(dir, '.opencode'), { recursive: true });
+  writeFileSync(join(dir, '.opencode', 'jev.json'), JSON.stringify({ hooks: true }));
+
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_LOGFILE: logFile }, projectDir: dir, readFile: throwingRead });
+
+  assert.equal(typeof captured.prompt, 'function', 'the prompt hook must register');
+  assert.equal(typeof captured.context, 'function', 'the context hook must register');
+  assert.match(readFileSync(logFile, 'utf8'), /enabled by \.opencode\/jev\.json/);
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('hooks: CLI_FIVE_JEVR_HOOKS=0 wins over a file switch', () => {
+  const dir = workspace();
+  const logFile = join(dir, 'jev.log');
+  mkdirSync(join(dir, '.opencode'), { recursive: true });
+  writeFileSync(join(dir, '.opencode', 'jev.json'), JSON.stringify({ hooks: true }));
+
+  const { ctx, captured } = captureSessionHooks();
+  registerSessionHooks(ctx, { env: { CLI_FIVE_JEVR_HOOKS: '0', CLI_FIVE_LOGFILE: logFile }, projectDir: dir });
+
+  assert.equal(captured.prompt, undefined, 'the env opt-out must win');
+  assert.equal(captured.context, undefined, 'the env opt-out must win');
+  assert.match(readFileSync(logFile, 'utf8'), /disabled by CLI_FIVE_JEVR_HOOKS=0/);
+
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -1699,7 +1903,7 @@ test('spawn-gate: opt-in registration coexists with the session hooks, which sti
     permission: { hook: (name, fn) => { captured[`perm:${name}`] = fn; return Promise.resolve({ dispose() {} }); } },
   };
 
-  registerSessionHooks(ctx, { env: j.env, readFile: throwingRead });
+  registerSessionHooks(ctx, { env: { ...j.env, CLI_FIVE_JEVR_HOOKS: '1' }, readFile: throwingRead });
   registerSpawnGate(ctx, { env: j.env, readFile: throwingRead });
 
   assert.equal(typeof captured.prompt, 'function', 'the prompt hook must still register');

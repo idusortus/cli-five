@@ -2,7 +2,7 @@
 
 ### Current Direction
 
-- Keep the five-agent workflow small and Copilot-specific.
+- Keep the five-agent workflow small and scoped to GitHub Copilot or OpenCode.
 - Preserve autonomous orchestration instead of restoring button-driven handoffs as the default path.
 - Keep plugin installation and scaffolded project generation aligned so users do not get two different systems.
 - Prefer validation and upgrade discipline over adding more orchestration surface area.
@@ -15,7 +15,7 @@
 
 ### Product Implication
 
-cli-five's value is not background automation or enterprise process theater. The value is a fast, familiar five-agent Copilot workflow with enough project memory to stay useful across sessions.
+cli-five's value is not background automation or enterprise process theater. The value is a fast, familiar five-agent Copilot or OpenCode workflow with enough project memory to stay useful across sessions.
 
 ### Documentation Priorities
 

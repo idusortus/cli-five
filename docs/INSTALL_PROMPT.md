@@ -8,7 +8,7 @@ Use it when you would rather not run the CLI yourself, or when you want the inst
 checked against the repo's real state (platform, authenticated provider, collisions).
 
 Everything in the prompt below was verified against a fresh repository on
-`cli-five@0.2.25`: dry-run preview, install, agent registration, `doctor`, and a live
+`cli-five@0.2.32`: dry-run preview, install, agent registration, `doctor`, and a live
 Orchestrator → Planner delegation.
 
 ---
@@ -90,9 +90,12 @@ STEP 4 — GIT HYGIENE
 STEP 5 — OPTIONAL ADD-ONS (only if I asked for them)
     npx -y cli-five@latest add codegraph   # MCP registration + AGENTS.md instructions,
                                            # works on BOTH platforms
-    npx -y cli-five@latest add jev         # tier-routing tool for the Planner,
-                                           # OpenCode ONLY; tier-routing only, its
-                                           # test-gate is parked
+    npx -y cli-five@latest add jev         # tier-routing tool for the Planner + opt-in
+                                           # Reviewer-spawn gate (shadow / enforce via
+                                           # .opencode/jev.json or CLI_FIVE_JEVR_SPAWN_GATE),
+                                           # OpenCode ONLY. Session hooks are opt-in too:
+                                           # off by default, enable with
+                                           # CLI_FIVE_JEVR_HOOKS=1
     npx -y cli-five@latest list-addons     # installed vs available, with honest status
 
 STOP AND ASK ME IF:

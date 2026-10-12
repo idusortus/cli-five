@@ -7,6 +7,18 @@ import { doctor } from './commands/doctor.mjs';
 import { listStacks } from './commands/list-stacks.mjs';
 import { add } from './commands/add.mjs';
 import { listAddonsCommand } from './commands/list-addons.mjs';
+import { PLATFORMS } from './util/platforms.mjs';
+import { PROVIDERS } from './util/models.mjs';
+
+const COST_MODES = ['premium', 'cheap', 'mixed'];
+
+// Flags that consume the following token as their value.
+const VALUE_FLAGS = new Set(['--doc', '--cost-mode', '--target', '--provider', '--cwd']);
+// Closed value sets (flag → canonical allowed values), validated case-insensitively.
+const ENUM_FLAGS = { '--cost-mode': COST_MODES, '--target': PLATFORMS, '--provider': PROVIDERS };
+// Extra accepted spellings (case-insensitive) that are not canonical values.
+// `--provider` accepts the `normalizeProvider` aliases in src/util/models.mjs.
+const ENUM_ALIASES = { '--provider': ['zen', 'go', 'github-copilot'] };
 
 const HELP = `${kleur.bold('cli-five')} ${kleur.gray('— Code Like I\'m Five')}
 Scaffold a 5-agent AI team into any repo.
@@ -23,7 +35,7 @@ ${kleur.bold('Commands')}
   help            Show this message
 
 ${kleur.bold('Flags')}
-  --yes, -y       Accept defaults and skip confirmations (still gated on overwrite)
+  --yes, -y       Accept defaults and skip confirmations (keeps existing files — the create policy)
   --force         Overwrite without confirmation. Dangerous. Use with --yes.
   --dry-run       Print actions without writing files
   --full-interview Run the full legacy interview (docs, goals, persona, models). Enables CodeGraph by default
@@ -46,6 +58,14 @@ ${kleur.bold('Flags')}
 export async function run(argv) {
   const args = parse(argv);
   const cmd = args._[0] || 'help';
+
+  // A parse error is reported before any command dispatches (exit code 2).
+  if (args.error) {
+    process.stderr.write(kleur.red(`Error: ${args.error}\n\n`));
+    process.stdout.write(HELP);
+    process.exitCode = 2;
+    return;
+  }
 
   switch (cmd) {
     case 'init':
@@ -92,7 +112,13 @@ function parse(argv) {
     target: null,
     provider: null,
     cwd: process.cwd(),
+    error: null,
   };
+  // Record the first parse error only, so the most specific failure survives.
+  const fail = (message) => {
+    if (!out.error) out.error = message;
+  };
+
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--yes' || a === '-y') out.yes = true;
@@ -107,14 +133,49 @@ function parse(argv) {
     else if (a === '--no-persona') out.persona = false;
     else if (a === '--codegraph') out.codegraph = true;
     else if (a === '--no-codegraph') out.codegraph = false;
-    else if (a === '--doc') out.docs.push(argv[++i]);
-    else if (a === '--cost-mode') out.costMode = argv[++i];
-    else if (a === '--target') out.target = argv[++i];
-    else if (a === '--provider') out.provider = argv[++i];
-    else if (a === '--cwd') out.cwd = argv[++i];
+    else if (VALUE_FLAGS.has(a)) {
+      const value = argv[i + 1];
+      // A missing value (end of args) or another flag is an error, not a value.
+      if (value === undefined || value.startsWith('-')) {
+        fail(`${a} requires a value`);
+        continue;
+      }
+      i += 1;
+      applyValue(out, a, value, fail);
+    }
     else if (a === '--help' || a === '-h') out._.push('help');
     else if (a === '--version' || a === '-v') out._.push('--version');
     else out._.push(a);
   }
   return out;
 }
+
+/** Assign a value-taking flag, validating enum flags and recording failures. */
+function applyValue(out, flag, value, fail) {
+  if (flag === '--doc') {
+    out.docs.push(value);
+    return;
+  }
+  const allowed = ENUM_FLAGS[flag];
+  const normalized = allowed ? matchEnum(flag, allowed, value) : value;
+  if (allowed && normalized === null) {
+    fail(`${flag} "${value}" is not supported (valid: ${allowed.join(', ')})`);
+    return;
+  }
+  if (flag === '--cost-mode') out.costMode = normalized;
+  else if (flag === '--target') out.target = normalized;
+  else if (flag === '--provider') out.provider = normalized;
+  else if (flag === '--cwd') out.cwd = value;
+}
+
+/**
+ * Case-insensitive enum match. Returns the lowercased value when it is a
+ * canonical value or a documented alias, else `null`.
+ */
+function matchEnum(flag, allowed, value) {
+  const lower = String(value).toLowerCase();
+  if (allowed.includes(lower)) return lower;
+  return (ENUM_ALIASES[flag] || []).includes(lower) ? lower : null;
+}
+
+export const __testables = { parse };

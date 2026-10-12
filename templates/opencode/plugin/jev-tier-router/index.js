@@ -20,7 +20,7 @@
 
 import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
+import { resolveOpencodeAuthCandidates, extractOpencodeStoreKey } from './auth.mjs';
 
 const CONFIDENCE_CUTOFF = 0.6;
 const FALLBACK_TIER = 'major';
@@ -197,27 +197,14 @@ function selectModel(provider, env) {
   return override || DEFAULT_MODELS[provider];
 }
 
-function extractStoreKey(parsed) {
-  if (!parsed || typeof parsed !== 'object') return null;
-  // Read each shape's `key` independently: a present-but-keyless top-level
-  // `opencode-go` entry must not shadow the `providers`-wrapped entry.
-  return nonEmpty(parsed?.['opencode-go']?.key ?? parsed?.providers?.['opencode-go']?.key);
-}
-
 function readOpencodeStoreKey(opts = {}) {
-  const env = opts.env ?? process.env;
   const read = typeof opts.readFile === 'function' ? opts.readFile : readFileSync;
-  const home = opts.homeDir || homedir();
 
-  const candidates = [];
-  const xdg = nonEmpty(env.XDG_DATA_HOME);
-  if (xdg) candidates.push(join(xdg, 'opencode', 'auth.json'));
-  candidates.push(join(home, '.local', 'share', 'opencode', 'auth.json'));
-
-  for (const file of candidates) {
+  // Absolute candidate paths only, shared with cli-five's provider detection.
+  for (const file of resolveOpencodeAuthCandidates(opts)) {
     try {
       const raw = read(file, 'utf8');
-      const key = extractStoreKey(JSON.parse(raw));
+      const key = extractOpencodeStoreKey(JSON.parse(raw));
       if (key) return key;
     } catch {
       /* missing/unreadable/unparseable/absent-provider is "no credential" */
@@ -461,23 +448,71 @@ export async function classifyWithJev(description, opts = {}) {
 //
 // This path is a spike: whether these hooks fire under OpenChamber's managed
 // server is the open question. It is inert when the host lacks the surface
-// (no throw, no behaviour change), on by default, and disabled with
-// CLI_FIVE_JEVR_HOOKS=0. Every firing and registration outcome is journaled.
-// The classifier, credential resolver, and journal sink are reused unchanged.
-const HOOKS_OPT_OUT_ENV = 'CLI_FIVE_JEVR_HOOKS';
+// (no throw, no behaviour change). It is OFF BY DEFAULT: enabled only when
+// CLI_FIVE_JEVR_HOOKS=1 or the project's `.opencode/jev.json` has
+// `"hooks": true`, and CLI_FIVE_JEVR_HOOKS=0 forces off. Every firing and
+// registration outcome is journaled. The classifier, credential resolver, and
+// journal sink are reused unchanged.
+const HOOKS_ENV = 'CLI_FIVE_JEVR_HOOKS';
+const HOOKS_CONFIG_KEY = 'hooks';
+
+/**
+ * True when the project's `.opencode/jev.json` opts session hooks in
+ * (`"hooks": true`). Missing/unreadable/unparseable files (and no project dir)
+ * are "not enabled". Never throws.
+ */
+function hooksEnabledFromFile(opts) {
+  const projectDir = typeof opts?.projectDir === 'string' ? opts.projectDir : '';
+  if (!projectDir) return false;
+  try {
+    const raw = readFileSync(join(projectDir, SPAWN_GATE_CONFIG_REL), 'utf8');
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed) && typeof parsed === 'object' && parsed[HOOKS_CONFIG_KEY] === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve whether the deterministic session hooks are enabled. Precedence
+ * (design D8): `CLI_FIVE_JEVR_HOOKS=0` → off; `=1` → on; else the project file
+ * switch (`"hooks": true`) → on; otherwise off. Never throws.
+ *
+ * @returns {{ enabled: boolean, reason: string }}
+ */
+function resolveHooksSwitch(opts) {
+  let env = null;
+  try {
+    env = opts?.env ?? process.env;
+  } catch {
+    env = null;
+  }
+  let raw = null;
+  try {
+    raw = env?.[HOOKS_ENV];
+  } catch {
+    raw = null;
+  }
+  const value = typeof raw === 'string' ? raw.trim() : '';
+
+  if (value === '0') return { enabled: false, reason: `disabled by ${HOOKS_ENV}=0` };
+  if (value === '1') return { enabled: true, reason: `enabled by ${HOOKS_ENV}=1` };
+  if (hooksEnabledFromFile(opts)) {
+    return { enabled: true, reason: `enabled by ${SPAWN_GATE_CONFIG_REL} "${HOOKS_CONFIG_KEY}": true` };
+  }
+  return { enabled: false, reason: `off by default (opt in with ${HOOKS_ENV}=1 or ${SPAWN_GATE_CONFIG_REL} "${HOOKS_CONFIG_KEY}": true)` };
+}
 
 /**
  * Register the deterministic session hooks, defensively.
  *
  * No-ops (and journals why) when the host has no session hook surface or when
- * CLI_FIVE_JEVR_HOOKS=0. Every read of the host surface and every registration
- * is guarded, so this function cannot throw even if `ctx`/`opts` are hostile
- * objects with throwing getters. Never throws.
+ * hooks are not opted in (see `resolveHooksSwitch`). Every read of the host
+ * surface and every registration is guarded, so this function cannot throw even
+ * if `ctx`/`opts` are hostile objects with throwing getters. Never throws.
  */
 export function registerSessionHooks(ctx, opts = {}) {
   try {
-    const env = opts.env ?? process.env;
-
     let hasHook = false;
     try {
       hasHook = typeof ctx?.session?.hook === 'function';
@@ -491,10 +526,13 @@ export function registerSessionHooks(ctx, opts = {}) {
       return;
     }
 
-    if (env[HOOKS_OPT_OUT_ENV] === '0') {
-      journal(`hooks: disabled by ${HOOKS_OPT_OUT_ENV}=0; registering no session hooks.`, opts);
+    const hookSwitch = resolveHooksSwitch(opts);
+    if (!hookSwitch.enabled) {
+      journal(`hooks: ${hookSwitch.reason}; registering no session hooks.`, opts);
       return;
     }
+
+    journal(`hooks: ${hookSwitch.reason}; registering session hooks.`, opts);
 
     // Per-registration cache so each load (and each test) is isolated from the
     // next. `last` is the fallback ONLY when a `context` event carries no session

@@ -129,7 +129,7 @@ npx cli-five help
 
 | Flag | Effect |
 |---|---|
-| `--yes`, `-y` | Accept defaults (overwrite gate still active) |
+| `--yes`, `-y` | Accept defaults, never prompt; keeps existing files (the `create` policy — only missing files are written) |
 | `--force` | Overwrite without confirmation (use with `--yes`) |
 | `--dry-run` | Print actions, write nothing |
 | `--full-interview`, `--full` | Run the full legacy interview (docs, goals/constraints/persona, model picker). Also enables CodeGraph, skills + instructions |
@@ -182,18 +182,18 @@ Re-running cli-five converges instead of blindly overwriting:
 Optional integrations live outside the default scaffold and are installed with `cli-five add <name>`.
 
 ```bash
-npx cli-five add             # list known targets
 npx cli-five add codegraph   # CodeGraph MCP registration + AGENTS.md instructions
 npx cli-five add jev         # tier routing for the Planner + opt-in Reviewer-spawn gate (OpenCode only)
 npx cli-five add openspec    # drive the OpenSpec CLI: openspec/ + editor commands + skills
-npx cli-five list-addons     # installed vs. available status
 ```
+
+`npx cli-five add` with no name lists the known targets, and `list-addons` (above) shows installed vs. available.
 
 Add-ons use `mergeBlock(file, markerFence, content)` to layer a fenced block into an existing JSON or Markdown file without touching the rest of it (distinct from init's blunt overwrite gate). Markdown gets `<!-- NAME_START -->` / `<!-- NAME_END -->` fences; JSON is deep-merged with existing keys preserved. Re-running an add-on is idempotent — no duplicate MCP entries or AGENTS.md sections.
 
 ### CodeGraph (`add codegraph`)
 
-`add codegraph` registers the CodeGraph MCP server and adds the CodeGraph section to `AGENTS.md`. It works on **both platforms**:
+CodeGraph adds a local, graph-backed codebase context server. The `add codegraph` add-on registers the MCP server and adds the CodeGraph section to `AGENTS.md`. It works on **both platforms**:
 
 | Target | MCP registration | Instructions |
 |---|---|---|
@@ -212,6 +212,8 @@ codegraph init
 ### Jev (`add jev`) — tier routing + opt-in spawn gate, OpenCode only
 
 `add jev` scaffolds an OpenCode plugin that adds a `tier_classifier` tool. The Planner calls it once per task to classify the work as `trivial` / `minor` / `major`, then scales planning depth accordingly.
+
+`add jev` is safe to re-run: the shipped plugin files under `.opencode/plugin/jev-tier-router/` are preserved when they already exist, so your tuning survives. Pass `add jev --force` to refresh them from the shipped templates (a deliberate reset).
 
 The classifier is **optional real Jev** with a local fallback:
 
@@ -235,7 +237,7 @@ jev         installed (tier routing + opt-in spawn gate)            available   
 
 **Fail-open is non-negotiable.** A missing credential makes **zero** network calls. When a credential is present but the call fails for any reason — 401 / 422 / 429 / 529, a network error, a timeout, or a malformed response — the tool falls back to the **local heuristic's own** `tier` and `confidence` (never a bare `major`), attaches a note reminding you that Jev is available, and never throws. Only an unexpected internal error that prevents even the local heuristic reports `available: false`. cli-five and the scaffolded agents behave identically whether the plugin works, is missing, or is broken.
 
-**Session-hook spike (deterministic path).** The plugin also registers OpenCode V2 **session hooks** (`ctx.session.hook('prompt', …)` and `ctx.session.hook('context', …)`) that classify the incoming prompt once at admission and inject the resulting tier as a **system instruction** — the user's prompt text is never rewritten, and no tool call is required. The path is **on by default** and disabled with **`CLI_FIVE_JEVR_HOOKS=0`**; it is inert (no throw, no behaviour change) on hosts without the session-hook surface. Every hook firing and every registration outcome is appended to the jev journal at **`.opencode/journals/jev-tier-router.log`**, so "did the hooks fire?" is answerable from the log alone. Measured: V2 session hooks **do fire** under OpenChamber's managed server (the old "hooks don't fire" belief came from the V1 *tool-interception* hooks and never applied to this family), and the permission `evaluate` hook below is likewise measured to fire. The **routing policy** remains an open question (the spike classifies every admission by default); the `tier_classifier` tool stays as the fallback and A/B control.
+**Session hooks (deterministic path, opt-in).** The plugin also ships OpenCode V2 **session hooks** (`ctx.session.hook('prompt', …)` and `ctx.session.hook('context', …)`) that classify the incoming prompt once at admission and inject the resulting tier as a **system instruction** — the user's prompt text is never rewritten, and no tool call is required. They are **off by default**: enable them with **`CLI_FIVE_JEVR_HOOKS=1`** or `"hooks": true` in `.opencode/jev.json` (the switch that reaches the plugin under OpenChamber routing, where the server does not inherit your client env); **`CLI_FIVE_JEVR_HOOKS=0`** still forces them off. The path is inert (no throw, no behaviour change) on hosts without the session-hook surface, and it is measured to fire under OpenChamber's managed server. Every firing and registration outcome is appended to the jev journal at **`.opencode/journals/jev-tier-router.log`**, so "did the hooks fire?" is answerable from the log alone. When enabled, the spike classifies every admission; the **routing policy** remains an open question, and the `tier_classifier` tool stays as the fallback and A/B control.
 
 **Spawn gate (opt-in).** The plugin also ships an **opt-in Reviewer-spawn gate**, built on the OpenCode V2 permission `evaluate` hook (the measured enforcement surface). Enable it with either switch:
 
@@ -245,7 +247,7 @@ jev         installed (tier routing + opt-in spawn gate)            available   
   { "spawnGate": "shadow" }
   ```
 
-  Accepted values are `off` | `shadow` | `enforce`; anything else — a missing, unreadable, unparseable, or keyless file — is `off`. The file is read against an `mtime`/`size`/`inode` stat signature (one `statSync` per in-scope event; a changed signature re-reads), so toggling it back and forth costs nothing else. If `ctx.location` yields no project directory, the file switch is disabled and the journal records `spawn-gate-config: no project directory; file switch disabled`.
+  Accepted values are `off` | `shadow` | `enforce`; anything else — a missing, unreadable, unparseable, or keyless file — is `off`. The file is re-read only when it changes, so toggling it is free and needs no server restart. If `ctx.location` yields no project directory, the file switch is disabled and the journal records `spawn-gate-config: no project directory; file switch disabled`.
 
 - **`CLI_FIVE_JEVR_SPAWN_GATE=shadow|enforce`** — the env override, for **standalone/CI** runs (`opencode run --standalone`). When set, it **wins over the file**. An **unrecognised value, including a typo, is `off` — it does not fall through to the file**, so a bad env value silently disables the gate (and the journal shows no decision lines). Default `off`.
 
@@ -260,13 +262,15 @@ The gate's `evaluate` hook is always registered; the mode is resolved per event,
   grep -h 'spawn-gate:' .opencode/journals/jev-tier-router.log | sed -E 's/.*decision=([a-z-]+).*/\1/' | sort | uniq -c
   ```
 
-The "test run" detector is a documented heuristic (pass/fail counts, `PASS`/`FAIL`, `AssertionError`, `Traceback`, `Error:`, `✗`/`✓`, `npm test`/`pytest`/`jest`/`vitest`), and the cutoffs (`p_failing >= 0.85 && p_mechanical >= 0.85`), 5 s timeout, 8000-char state cap, and 2-deny cap are named constants at the top of `index.js`. The README's contract is the default-off path: a plain `add jev` install gates nothing until you opt in.
+The "test run" detector is a documented heuristic (pass/fail counts, `PASS`/`FAIL`, `AssertionError`, `Traceback`, `Error:`, `✗`/`✓`, `npm test`/`pytest`/`jest`/`vitest`); the cutoffs, timeout, state cap, and deny cap are named constants at the top of the shipped `index.js`. The contract is the default-off path: a plain `add jev` install gates nothing until you opt in.
 
-**What leaves the machine.** The session hooks and the `tier_classifier` tool both send the text they classify — the user's prompt, or the tool's `description` — to the resolved Jev provider (OpenCode Zen, or TypeSafe if that key is configured); the session hooks do so **by default** once a credential resolves, and `CLI_FIVE_JEVR_HOOKS=0` turns them off. The spawn gate is distinct only in *what* it sends: a **truncated slice of the session transcript** — the most recent test-run output plus the last few messages, capped at ~8000 characters. With the spawn gate at its default `off` (no `CLI_FIVE_JEVR_SPAWN_GATE` and no `.opencode/jev.json` `spawnGate`), the gate reads no transcript and makes no call; that statement is about the gate, not a claim that the rest of the plugin is silent.
+**What leaves the machine.** The session hooks and the `tier_classifier` tool both send the text they classify — the user's prompt, or the tool's `description` — to the resolved Jev provider (OpenCode Zen, or TypeSafe if that key is configured). The session hooks send it **only when enabled** (`CLI_FIVE_JEVR_HOOKS=1` or `.opencode/jev.json` `"hooks": true`); they are off by default, so a fresh install makes no admission-time call. The spawn gate is distinct only in *what* it sends: a **truncated slice of the session transcript** — the most recent test-run output plus the last few messages, capped at ~8000 characters. With the spawn gate at its default `off` (no `CLI_FIVE_JEVR_SPAWN_GATE` and no `.opencode/jev.json` `spawnGate`), the gate reads no transcript and makes no call; that statement is about the gate, not a claim that the rest of the plugin is silent.
 
 **Why `shadow` comes first.** The two cutoffs are **initial values, not tuned ones**. `p_mechanical` is phrasing-sensitive: measured live, `Cannot find module 'left-pad'` scored **0.95** and `SyntaxError: Unexpected token '}'` scored **0.91**, but a bare `ReferenceError: helper is not defined` scored **0.76** and a pass/fail count with no error text scored **0.16** — so at the shipped 0.85 cutoff some genuinely mechanical failures are allowed through. Run in `shadow` on real work first, read the journal's `p_failing`/`p_mechanical` columns, and only move to `enforce` once you have seen what it would deny in your own codebase.
 
 **Copilot has no equivalent.** `add jev` refuses cleanly on a Copilot target (exit 1, no files written) — there is no `tools.add`-style surface there.
+
+Implementation rationale — provider ordering, credential resolution, and the routing policy — is recorded in the repo's [`decisions.md`](https://github.com/idusortus/cli-five/blob/main/decisions.md).
 
 ### OpenSpec (`add openspec`)
 
@@ -316,29 +320,14 @@ During `init --full-interview` you can choose the model provider and optionally 
 
 | Agent | `premium` (1x–3x) | `cheap` (0x) | `mixed` |
 |---|---|---|---|
-| Orchestrator | Claude Sonnet 4.6 | GPT-4.1 | GPT-4.1 |
-| Planner | Claude Opus 4.6 | GPT-4o | GPT-4o |
-| Coder | GPT-5.3-Codex | GPT-4.1 | GPT-5.3-Codex |
-| Designer | Gemini 3.1 Pro (Preview) | GPT-4o | GPT-4o |
-| Reviewer | Claude Sonnet 4.6 | GPT-5 mini | Claude Sonnet 4.6 |
+| Orchestrator | Claude Sonnet 4.6 (copilot) | GPT-4.1 (copilot) | GPT-4.1 (copilot) |
+| Planner | Claude Opus 4.6 (copilot) | GPT-4o (copilot) | GPT-4o (copilot) |
+| Coder | GPT-5.3-Codex (copilot) | GPT-4.1 (copilot) | GPT-5.3-Codex (copilot) |
+| Designer | Claude Opus 4.6 (copilot) | GPT-4o (copilot) | GPT-4o (copilot) |
+| Reviewer | Claude Opus 4.6 (copilot) | GPT-5 mini (copilot) | Claude Opus 4.6 (copilot) |
 
 Override from CLI: `npx cli-five init --cost-mode cheap`
 Change anytime by editing the `model:` line in the agent files.
-
-## CodeGraph
-
-CodeGraph adds a local, graph-backed codebase context server. It is **off by default** in the minimal scaffold; enable it with `--codegraph` or `--full-interview`. When enabled, cli-five:
-
-- Registers the CodeGraph MCP server in `opencode.json` (OpenCode) or `.vscode/mcp.json` (Copilot).
-- Adds a marker-fenced CodeGraph section to `AGENTS.md`.
-- Tells you to run `codegraph init` to index the project.
-
-cli-five does **not** install or run the CodeGraph CLI automatically. After scaffolding:
-
-```bash
-npm i -g @colbymchenry/codegraph
-codegraph init
-```
 
 ## Required settings
 
@@ -357,6 +346,8 @@ No extra settings required. Project agents live in `.opencode/agents/` and the p
 ## Skill discovery
 
 Skill discovery runs during `init --full-interview` (or when you pass `--skills`). cli-five searches **two sources** for skills matching your detected stack:
+
+`--yes` short-circuits discovery entirely: the picker needs interaction, so a non-interactive run skips it and points you at `npx skills find` to continue later. `--no-skills` skips it explicitly.
 
 | Source | What it has | Stars |
 |---|---|---|

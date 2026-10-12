@@ -23,7 +23,8 @@ const JSON_EXTENSIONS = new Set(['.json']);
  *       ...content...
  *       <!-- NAME_END -->
  *     If the fences already exist the body between them is replaced in place;
- *     otherwise the block is appended. Re-running is idempotent.
+ *     a lone START fence with no END is repaired by replacing from START to
+ *     end-of-file; otherwise the block is appended. Re-running is idempotent.
  *
  * @param {string} filePath              Absolute path to the target file.
  * @param {string|{name?:string,start?:string,end?:string}} markerFence
@@ -118,6 +119,16 @@ function mergeText(filePath, markerFence, content) {
   if (pattern.test(existing)) {
     const next = existing.replace(pattern, core);
     return { contents: next, action: next === existing ? 'unchanged' : 'updated' };
+  }
+
+  // Lone START fence (no matching END): repair by replacing from START through
+  // end-of-file, so the file converges to a single paired fence instead of
+  // gaining a second block. Idempotent: the next call finds the pair above.
+  const startIdx = existing.indexOf(start);
+  if (startIdx !== -1) {
+    const head = existing.slice(0, startIdx).replace(/\s+$/, '');
+    const next = head ? `${head}\n\n${core}\n` : `${core}\n`;
+    return { contents: next, action: 'updated' };
   }
 
   const next = `${existing.replace(/\s+$/, '')}\n\n${core}\n`;

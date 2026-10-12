@@ -3,6 +3,9 @@ import { log } from '../util/log.mjs';
 import { detectPlatform, platformLabel } from '../util/platforms.mjs';
 import { addCodegraphTo, CODEGRAPH_INIT_REMINDER, mcpTargetFor } from './codegraph.mjs';
 
+// README plan symbols: + created, ~ updated, = unchanged, . skipped.
+const ACTION_SYMBOL = { created: '+', updated: '~', unchanged: '=', skipped: '.' };
+
 /**
  * `add codegraph` — register the CodeGraph MCP server + AGENTS.md section.
  *
@@ -21,11 +24,22 @@ export async function runCodegraph({ cwd, args = {} }) {
   }
 
   const dryRun = Boolean(args.dryRun);
-  const touched = addCodegraphTo({ cwd, platform, dryRun, track: true });
+
+  let touched;
+  try {
+    touched = addCodegraphTo({ cwd, platform, dryRun, track: true });
+  } catch (err) {
+    // Match init's fail-open handling: a malformed target is reported, not
+    // thrown, and the command continues with a non-zero exit code.
+    log.warn(`Skipped CodeGraph registration: ${err.message}`);
+    log.dim('Fix the file, then re-run `npx cli-five add codegraph`.');
+    process.exitCode = 1;
+    return [];
+  }
 
   for (const t of touched) {
     const rel = t.path.replace(cwd + '/', '');
-    const symbol = t.action === 'created' || t.action === 'updated' ? '+' : '~';
+    const symbol = ACTION_SYMBOL[t.action] || '?';
     log.raw(`  ${symbol} ${rel} ${kleur.dim(`(${t.action})`)}`);
   }
 
@@ -36,4 +50,4 @@ export async function runCodegraph({ cwd, args = {} }) {
   return touched;
 }
 
-export const __testables = { detectPlatform };
+export const __testables = { detectPlatform, ACTION_SYMBOL };

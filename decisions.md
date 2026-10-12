@@ -12,6 +12,14 @@
 
 ---
 
+## 2026-10-12 — Keep Jev in-package; make its runtime opt-in
+**Context:** A whole-repo review flagged the Jev tier-router as the piece that makes cli-five look like it "does too much" — a ~1,375-line OpenCode-only runtime plugin (larger than any `src/` file, ~24% of shipped source, ~106 tests ≈ half the suite) with outbound network calls and an opt-in permission spawn gate, shipped as an add-on template inside the scaffolder. The reviewer recommended extracting it to its own package. Jev has shown promising results, so the goal was to address the scope concern without losing the integration.
+**Choice:** Keep the plugin inside cli-five and keep `cli-five add jev` as the install path (no extraction). Address the scope concern by making Jev **runtime opt-in**: the V2 session hooks flip from on-by-default to **off unless explicitly enabled** (`CLI_FIVE_JEVR_HOOKS=1`, or `.opencode/jev.json` `"hooks": true` for OpenChamber routing where the server doesn't inherit client env); the `tier_classifier` tool and the opt-in spawn gate are unchanged. Captured in OpenSpec change `harden-jev-and-address-review-findings` (with the other review findings: `add jev --dry-run`/`--force` parity, a shared absolute-path credential reader, add-on error handling, CLI flag validation, lone-fence `mergeBlock` repair, and the doc corrections).
+**Trade-offs:** The plugin still ships ~24% of the package source and ~half its tests; extraction stays a future option. The new `.opencode/jev.json` `hooks` key is a new convention. A never-re-run install keeps the old (hooks-on) default until `add jev` is re-run.
+**Revisit:** If Jev usage/quality regresses, or the plugin's size/maintenance burden (template↔installed drift, the cheap/mixed cost both living in two maps) outweighs the value of one package — then extract to e.g. `@cli-five/jev-tier-router` and make `add jev` a thin installer.
+
+---
+
 ## 2026-10-01 — Journal sink follows the resolved project directory (routing fix)
 **Context:** The gate's routing fix exposed a second environment mismatch: `journal()` defaulted to `join(process.cwd(), '.opencode', 'journals', …)`. Under OpenChamber routing the server's cwd is the server's own directory (`/home/sam`), not the project, so every line — including the `spawn-gate:` decision lines and the session-hook/tool lines — was written to the server's journal and the project had no `journals/` directory at all. The README's project-relative path and tally command were therefore wrong in exactly the environment the routing switch exists to enable.
 **Choice:** `journal(message, opts)` now takes an optional `opts.projectDir`: the default path is `join(opts.projectDir ?? process.cwd(), '.opencode', 'journals', 'jev-tier-router.log')`, and `CLI_FIVE_LOGFILE` still wins over both. The plugin resolves the project directory **once at load** from `ctx.location` (via `resolveSpawnGateProjectDir`) and threads it through every journal call site — session hooks, the spawn gate, and the `tier_classifier` tool's classify/fail-open paths — so all lines for one project land in that project's journal. Resolution and journaling are both guarded to never throw.
@@ -62,7 +70,7 @@
 
 ## 2026-09-27 — Keep the `--target` default as `copilot`
 **Context:** An external review flagged the `copilot` default as an unassigned "flip the default" item. We had to choose: flip to `opencode`, require an explicit `--target` with `--yes`, or keep the status quo.
-**Choice:** Keep `copilot` as the default for `--yes`/non-interactive runs (the `--yes` branch of `choosePlatform` in `src/steps/platform.mjs`, `src/commands/init.mjs:207`). Both platforms remain fully installable and documented — verified with dry-run scaffolds for `--target copilot` and `--target opencode` (exit 0), Copilot plugin install at `README.md:25`, OpenCode config at `README.md:92`/`276`.
+**Choice:** Keep `copilot` as the default for `--yes`/non-interactive runs (the `--yes` branch of `choosePlatform` in `src/steps/platform.mjs`). Both platforms remain fully installable and documented — verified with dry-run scaffolds for `--target copilot` and `--target opencode` (exit 0); the Copilot plugin install is documented under README → *Quick plugin install*, and the OpenCode config under README → *OpenCode layout* / *Required settings → OpenCode*.
 **Trade-offs:** The CLI default does not match this repo's own OpenCode-scaffolded workspace; OpenCode users must pass `--target opencode` or use the interactive prompt.
 **Revisit:** A deliberate breaking release, or evidence that OpenCode is the dominant audience.
 
@@ -71,3 +79,15 @@
 **Choice:** Remove both from the index (`git rm --cached`), add `.ai_*.log` to `.gitignore`, and leave git history intact (no `filter-repo`/BFG/fresh-start).
 **Trade-offs:** The blobs persist in older commits and `.git` stays ~2.3 MB. Accepted because `package.json`'s `files` whitelist already keeps `node_modules` out of the published npm tarball and the log contents are harmless.
 **Revisit:** If `.git` grows past ~10 MB, or any committed log ever contains sensitive data.
+
+## 2026-10-12 — CLI enum validation is case-insensitive and accepts the provider aliases
+**Context:** Review finding F1: `src/cli.mjs` exact-matched `PROVIDERS`/`PLATFORMS`, so `init --provider zen|go|github-copilot` and `init --target OpenCode|Copilot` started failing (exit 2) even though the downstream code normalizes them (`src/steps/platform.mjs` lowercases `--target`; `normalizeProvider` in `src/util/models.mjs` accepts `zen`/`go`/`github-copilot` and any case). That is a breaking narrowing, contradicting change design D6 ("just add validation", non-breaking).
+**Choice:** Validate enum values **case-insensitively** and accept the `normalizeProvider` aliases for `--provider` (extra `ENUM_ALIASES` map); store the **lowercased** value. Error only when nothing matches, listing the canonical set. Aliases are not rewritten to canonical ids — the existing downstream normalizers own that mapping.
+**Trade-offs:** `parse()` no longer round-trips the user's original casing (`--target Copilot` stores `opencode`-style lowercase). Accepted: the stored value feeds only normalizing consumers, and lowercase keys keep the `parse` contract uniform and testable.
+**Revisit:** If a consumer ever needs the raw pre-normalized token, keep the original alongside the normalized value instead of reverting the normalization.
+
+## 2026-10-12 — Store provider-presence parsing lives in the shared credential reader
+**Context:** Review finding F5: the `auth-credential-reader` spec says the two readers SHALL not independently parse the store, but `src/util/auth.mjs#providerIdsFromStore` still parsed `auth.json` itself.
+**Choice:** Add `opencodeStoreProviderIds(parsed)` to the canonical `src/util/opencode-auth.mjs`, returning the OpenCode provider ids present (both store shapes, skipping the `providers` wrapper key, plus `opencode-go` when a usable key exists). `auth.mjs` now only maps those ids through `AUTH_ID_TO_PROVIDER`; the helper is mirrored verbatim (same tail) into the vendored `templates/opencode/plugin/jev-tier-router/auth.mjs` so the behavioural parity test covers it.
+**Trade-offs:** The vendored plugin exposes a helper it does not currently consume; accepted because the two files are copied verbatim by design and divergence is the failure mode we are guarding against.
+**Revisit:** If the plugin gains a use for the presence scan, call it from `index.js` rather than re-parsing inline.

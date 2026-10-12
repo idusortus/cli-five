@@ -8,10 +8,6 @@ export const PLATFORM_OPENCODE = 'opencode';
 
 export const PLATFORMS = [PLATFORM_COPILOT, PLATFORM_OPENCODE];
 
-export function isValidPlatform(value) {
-  return PLATFORMS.includes(value);
-}
-
 export function platformLabel(value) {
   return value === PLATFORM_OPENCODE ? 'OpenCode' : 'GitHub Copilot';
 }

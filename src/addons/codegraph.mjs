@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { mergeBlock } from '../util/merge.mjs';
 import { readJsonFile } from '../util/fs.mjs';
 import { PLATFORM_OPENCODE } from '../util/platforms.mjs';
@@ -94,23 +93,7 @@ export function addCodegraphTo({ cwd, platform, dryRun = false, track = false })
 }
 
 /**
- * Idempotent remove-of-duplicates is intentionally NOT implemented: mergeBlock
- * already replaces an existing fenced block in place and deep-merges JSON, so
- * re-running add codegraph does not duplicate anything.
+ * Re-running add codegraph does not duplicate anything: mergeBlock replaces an
+ * existing fenced block in place and deep-merges JSON.
  */
-export function isCodegraphPresent(cwd, platform) {
-  const mcpPath = join(cwd, mcpTargetFor(platform));
-  const cfg = readJsonFile(mcpPath);
-  if (platform === PLATFORM_OPENCODE) return Boolean(cfg?.mcp?.codegraph);
-  return Boolean(cfg?.servers?.codegraph);
-}
-
-/** Ensure a file exists with given content (used for a created-not-merged file). */
-export function ensureFile(filePath, contents) {
-  if (existsSync(filePath)) return false;
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, contents);
-  return true;
-}
-
 export const __testables = { mcpTargetFor };

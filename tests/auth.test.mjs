@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { __testables, preferredProviderForAuth } from '../src/util/auth.mjs';
@@ -69,4 +69,35 @@ test('authFromFile falls through a malformed file rather than throwing', () => {
 
 test('preferredProviderForAuth returns null for non-opencode platforms', () => {
   assert.equal(preferredProviderForAuth('copilot'), null);
+});
+
+test('authFromFile ignores relative candidates (no repo-local auth.json is read)', () => {
+  const dir = workspace();
+  // A repo-local ./opencode/auth.json that must never be mistaken for the store.
+  mkdirSync(join(dir, 'opencode'), { recursive: true });
+  writeFileSync(join(dir, 'opencode', 'auth.json'), JSON.stringify({ 'opencode-go': { key: 'repo-local' } }));
+  const home = join(dir, 'home');
+  mkdirSync(home, { recursive: true });
+
+  const prevCwd = process.cwd();
+  const prev = {
+    OPENCODE_AUTH_FILE: process.env.OPENCODE_AUTH_FILE,
+    XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+    HOME: process.env.HOME,
+  };
+  process.chdir(dir);
+  process.env.OPENCODE_AUTH_FILE = './opencode/auth.json';
+  process.env.XDG_DATA_HOME = 'relative/xdg';
+  process.env.HOME = home;
+  try {
+    const ids = authFromFile() || [];
+    assert.deepEqual(ids, [], 'relative candidates must resolve to no providers');
+  } finally {
+    process.chdir(prevCwd);
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

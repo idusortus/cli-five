@@ -20,7 +20,7 @@ Get Shit Done is a much larger context-engineering and workflow system that span
 ## What cli-five Should Not Copy
 
 - The huge command surface and phase machinery. That would bury cli-five's main value under a lot of ceremony.
-- Runtime-specific sprawl. cli-five should stay tightly focused on GitHub Copilot in VS Code.
+- Runtime-specific sprawl. cli-five should stay tightly focused on a single small five-agent workflow for GitHub Copilot or OpenCode.
 - Background workflow complexity. GSD earns that scope because it is a broader platform; cli-five does not need it.
 
 ## Bottom Line

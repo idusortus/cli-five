@@ -12,10 +12,11 @@ Scaffold a working 5-agent AI team (GitHub Copilot or OpenCode) into any repo �
 Node (ESM JavaScript), no build step
 
 ## Frameworks / Key Libraries
-None declared.
+- `kleur` (terminal color), `prompts` (interactive interview), `skills` (skill discovery), `yaml`
+- Node's built-in test runner (`node --test`) and ESLint 10 (flat config) for dev
 
 ## Constraints
-None declared.
+None declared — see `PROJECT.md` → Hard Constraints.
 
 ## Workflow
 1. Read `PROJECT.md` for the long-form vision.

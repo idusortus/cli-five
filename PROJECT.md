@@ -31,10 +31,16 @@ npm ci && npm run lint && npm test # develop this repo
 None declared.
 
 ## Out of Scope
-_(populate as you discover things this project will NOT do)_
+- **Not a runtime or workflow engine.** Scaffolded repos do not depend on `cli-five`; there is no daemon, no issue-polling loop, and no large slash-command surface.
+- **No extraction of the Jev tier-router into a separate package.** It stays in-package and runtime opt-in; extraction is revisited only if it earns it.
+- **No new runtime dependency** in the CLI, and the copied Jev plugin stays dependency-free.
+- Google Antigravity / AGY CLI support is planned but not implemented.
 
 ## Success Criteria
-_(populate with measurable outcomes — what does "done" look like?)_
+- `npx cli-five init` scaffolds a working 5-agent team for Copilot or OpenCode, and `doctor` reports all required files present.
+- All five agents register and run (OpenCode: `opencode debug agents`; a live Orchestrator → Planner delegation returns the expected reply).
+- Re-running `init` / `add` is idempotent and non-destructive (create-once user files, add-only `opencode.json` merge).
+- `npm test` and `npm run lint` pass on Node 20/22/24 in CI.
 
 ---
 
